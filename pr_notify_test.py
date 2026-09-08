@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
 
-from pr_notify import collect_events
+from pr_notify import build_search_query, collect_events
 
 ME = "chris"
 SINCE = datetime(2026, 9, 8, 11, 0, tzinfo=UTC)
@@ -99,3 +99,20 @@ def test_survives_a_deleted_account() -> None:
     ghosted = comment() | {"author": None}
     (event,) = collect_events(pull_request(comments={"nodes": [ghosted]}), SINCE, ME)
     assert event["actor"] == "ghost"
+
+
+def test_the_search_excludes_review_requests() -> None:
+    assert "involves:@me" in build_search_query(SINCE)
+    assert "review-requested" not in build_search_query(SINCE)
+
+
+@pytest.mark.parametrize(
+    ("case", "moment"),
+    [
+        ("already UTC", datetime(2026, 9, 8, 11, 0, tzinfo=UTC)),
+        ("ahead of UTC", datetime(2026, 9, 8, 13, 0, tzinfo=timezone(timedelta(hours=2)))),
+        ("behind UTC", datetime(2026, 9, 8, 7, 0, tzinfo=timezone(timedelta(hours=-4)))),
+    ],
+)
+def test_the_search_timestamp_is_always_utc(case: str, moment: datetime) -> None:
+    assert "updated:>2026-09-08T11:00:00Z" in build_search_query(moment), case

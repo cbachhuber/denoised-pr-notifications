@@ -82,11 +82,17 @@ def write_watermark(value: datetime) -> None:
     STATE_FILE.write_text(value.isoformat())
 
 
+def build_search_query(since: datetime) -> str:
+    # involves: is author OR commenter OR assignee OR mentions, and deliberately not review-requested,
+    # which is what keeps CODEOWNERS team requests out of the feed.
+    stamp = since.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f"is:pr involves:@me updated:>{stamp} sort:updated-desc"
+
+
 def search_pull_requests(token: str, since: datetime) -> tuple[str, list[dict[str, Any]]]:
-    query = f"is:pr involves:@me updated:>{since.strftime('%Y-%m-%dT%H:%M:%SZ')} sort:updated-desc"
     raw, headers = post_json(
         GRAPHQL_URL,
-        {"query": QUERY, "variables": {"q": query}},
+        {"query": QUERY, "variables": {"q": build_search_query(since)}},
         {"Authorization": f"Bearer {token}"},
     )
     # Only present for tokens that actually expire; logged verbatim rather than parsed.
