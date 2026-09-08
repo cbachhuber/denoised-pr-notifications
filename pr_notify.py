@@ -72,6 +72,9 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> tup
 
 
 def read_watermark() -> datetime:
+    # Delivery is fire-and-forget, so a replay window is the only way to recover dropped cards.
+    if override := os.environ.get("SINCE", "").strip():
+        return datetime.fromisoformat(override)
     if STATE_FILE.exists():
         return datetime.fromisoformat(STATE_FILE.read_text().strip())
     return datetime.now(UTC) - COLD_START_LOOKBACK

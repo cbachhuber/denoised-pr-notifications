@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+    inputs:
+      since:
+        description: "Replay from this UTC timestamp, e.g. 2026-09-08T14:00:00+00:00 (blank uses the watermark)"
+        required: false
+        type: string
 
 concurrency:
   group: pr-teams-notify
@@ -31,6 +36,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PR_NOTIFY_TOKEN }}
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          SINCE: ${{ inputs.since }}
 
       - name: Save watermark
         if: always()

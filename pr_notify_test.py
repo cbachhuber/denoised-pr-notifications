@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import pr_notify
 from pr_notify import build_search_query, collect_events
 
 ME = "chris"
@@ -104,6 +105,18 @@ def test_survives_a_deleted_account() -> None:
 def test_the_search_excludes_review_requests() -> None:
     assert "involves:@me" in build_search_query(SINCE)
     assert "review-requested" not in build_search_query(SINCE)
+
+
+def test_a_replay_window_overrides_the_watermark(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    state = tmp_path / "watermark"
+    state.write_text("2026-09-08T14:17:21+00:00")
+    monkeypatch.setattr(pr_notify, "STATE_FILE", state)
+
+    monkeypatch.setenv("SINCE", "2026-09-08T13:00:00+00:00")
+    assert pr_notify.read_watermark() == datetime(2026, 9, 8, 13, 0, tzinfo=UTC)
+
+    monkeypatch.setenv("SINCE", "")
+    assert pr_notify.read_watermark() == datetime(2026, 9, 8, 14, 17, 21, tzinfo=UTC)
 
 
 @pytest.mark.parametrize(

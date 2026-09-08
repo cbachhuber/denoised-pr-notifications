@@ -90,6 +90,19 @@ The watermark only advances on success, so a failed run produces a delayed notif
 **Token expiry.**
 A dead token in a repository nobody opens would otherwise fail silently, so a `401`/`403` posts a "PR notifier is broken" card with a renewal link, and the run still exits non-zero — which also triggers GitHub's own workflow-failure email to whoever last edited the cron.
 
+**Delivery is fire-and-forget.**
+A Workflows webhook returns `202 Accepted` and runs the flow asynchronously, so a 2xx means "queued", never "delivered".
+If the flow itself fails — a wrong recipient, an expired connection — the notifier cannot tell, and the watermark advances anyway, so those cards are lost.
+When that happens, fix the flow and then replay the window:
+
+```bash
+gh workflow run pr-teams-notify.yml -f since=2026-09-08T14:00:00+00:00
+```
+
+The flow's own run history in Teams (**Workflows → My flows → run history**) is the only authoritative record of delivery.
+A Graph error of `Call made for a thread which is not a ChatThread` there means the *Post card in a chat or channel* action is aimed at something that is not a postable chat — typically the self-chat or a meeting chat.
+Set **Post in** to *Chat with Flow bot* with yourself as recipient.
+
 **Schedule drift.**
 GitHub cron is best-effort and is delayed or dropped under load, especially on the hour.
 The watermark makes this harmless.
