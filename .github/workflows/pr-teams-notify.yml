@@ -1,0 +1,40 @@
+name: PR activity to Teams
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: pr-teams-notify
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Cache keys are immutable, so each run writes a new one and restore-keys picks the newest.
+      - name: Restore watermark
+        uses: actions/cache/restore@v4
+        with:
+          path: .state
+          key: watermark-${{ github.run_id }}
+          restore-keys: watermark-
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Collect and notify
+        run: uv run pr_notify.py
+        env:
+          GH_TOKEN: ${{ secrets.PR_NOTIFY_TOKEN }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+      - name: Save watermark
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .state
+          key: watermark-${{ github.run_id }}
