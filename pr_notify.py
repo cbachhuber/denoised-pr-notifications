@@ -60,7 +60,7 @@ query($q: String!) {
 """
 
 
-def post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> tuple[bytes, Any]:
+def post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> tuple[int, bytes, Any]:
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
@@ -68,7 +68,7 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> tup
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read(), response.headers
+        return response.status, response.read(), response.headers
 
 
 def read_watermark() -> datetime:
@@ -90,7 +90,7 @@ def build_search_query(since: datetime) -> str:
 
 
 def search_pull_requests(token: str, since: datetime) -> tuple[str, list[dict[str, Any]]]:
-    raw, headers = post_json(
+    _, raw, headers = post_json(
         GRAPHQL_URL,
         {"query": QUERY, "variables": {"q": build_search_query(since)}},
         {"Authorization": f"Bearer {token}"},
@@ -202,14 +202,20 @@ def main() -> None:
             post_json(webhook_url, build_alert_card(f"GitHub rejected the token ({error.code})."), {})
         raise
 
-    sent = 0
+    sent: list[int] = []
     for pull_request in pull_requests:
         for event in collect_events(pull_request, since, me):
-            post_json(webhook_url, build_card(pull_request, event), {})
-            sent += 1
+            # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
+            status, body, _ = post_json(webhook_url, build_card(pull_request, event), {})
+            sent.append(status)
+            if body.strip():
+                print(f"webhook replied {status}: {body[:200]!r}")
 
     write_watermark(run_started_at)
-    print(f"since={since.isoformat()} pull_requests={len(pull_requests)} notifications={sent}")
+    print(
+        f"since={since.isoformat()} pull_requests={len(pull_requests)} "
+        f"notifications={len(sent)} webhook_status={sorted(set(sent))}"
+    )
 
 
 if __name__ == "__main__":
