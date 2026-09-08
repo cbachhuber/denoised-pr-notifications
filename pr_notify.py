@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 GRAPHQL_URL = os.environ.get("GITHUB_GRAPHQL_URL", "https://api.github.com/graphql")
+TOKEN_SETTINGS_URL = os.environ.get("TOKEN_SETTINGS_URL", "https://github.com/settings/tokens")
 STATE_FILE = Path(os.environ.get("STATE_FILE", ".state/watermark"))
 IGNORED_AUTHORS = frozenset(os.environ.get("IGNORED_AUTHORS", "github-actions").split(","))
 COLD_START_LOOKBACK = timedelta(hours=1)
@@ -58,7 +60,7 @@ query($q: String!) {
 """
 
 
-def post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> bytes:
+def post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> tuple[bytes, Any]:
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
@@ -66,7 +68,7 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> byt
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read()
+        return response.read(), response.headers
 
 
 def read_watermark() -> datetime:
@@ -82,11 +84,14 @@ def write_watermark(value: datetime) -> None:
 
 def search_pull_requests(token: str, since: datetime) -> tuple[str, list[dict[str, Any]]]:
     query = f"is:pr involves:@me updated:>{since.strftime('%Y-%m-%dT%H:%M:%SZ')} sort:updated-desc"
-    raw = post_json(
+    raw, headers = post_json(
         GRAPHQL_URL,
         {"query": QUERY, "variables": {"q": query}},
         {"Authorization": f"Bearer {token}"},
     )
+    # Only present for tokens that actually expire; logged verbatim rather than parsed.
+    if expiry := headers.get("github-authentication-token-expiration"):
+        print(f"token expires: {expiry}")
     response = json.loads(raw)
     if "errors" in response:
         raise RuntimeError(f"GraphQL query failed: {response['errors']}")
@@ -138,16 +143,7 @@ def _body(entry: dict[str, Any]) -> dict[str, str]:
     return {"url": entry["url"], "preview": preview}
 
 
-def build_card(pull_request: dict[str, Any], event: dict[str, str]) -> dict[str, Any]:
-    heading = f"{event['kind']} by {event['actor']}"
-    subtitle = f"{pull_request['repository']['nameWithOwner']} #{pull_request['number']} · {pull_request['title']}"
-    body: list[dict[str, Any]] = [
-        {"type": "TextBlock", "text": heading, "weight": "Bolder", "size": "Medium", "wrap": True},
-        {"type": "TextBlock", "text": subtitle, "isSubtle": True, "spacing": "None", "wrap": True},
-    ]
-    if event["preview"]:
-        body.append({"type": "TextBlock", "text": event["preview"], "wrap": True, "separator": True})
-
+def wrap_card(body: list[dict[str, Any]], actions: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "type": "message",
         "attachments": [
@@ -158,11 +154,32 @@ def build_card(pull_request: dict[str, Any], event: dict[str, str]) -> dict[str,
                     "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     "version": "1.4",
                     "body": body,
-                    "actions": [{"type": "Action.OpenUrl", "title": "Open on GitHub", "url": event["url"]}],
+                    "actions": actions,
                 },
             }
         ],
     }
+
+
+def build_card(pull_request: dict[str, Any], event: dict[str, str]) -> dict[str, Any]:
+    heading = f"{event['kind']} by {event['actor']}"
+    subtitle = f"{pull_request['repository']['nameWithOwner']} #{pull_request['number']} · {pull_request['title']}"
+    body: list[dict[str, Any]] = [
+        {"type": "TextBlock", "text": heading, "weight": "Bolder", "size": "Medium", "wrap": True},
+        {"type": "TextBlock", "text": subtitle, "isSubtle": True, "spacing": "None", "wrap": True},
+    ]
+    if event["preview"]:
+        body.append({"type": "TextBlock", "text": event["preview"], "wrap": True, "separator": True})
+
+    return wrap_card(body, [{"type": "Action.OpenUrl", "title": "Open on GitHub", "url": event["url"]}])
+
+
+def build_alert_card(message: str) -> dict[str, Any]:
+    body = [
+        {"type": "TextBlock", "text": "PR notifier is broken", "weight": "Bolder", "size": "Medium", "color": "Attention"},
+        {"type": "TextBlock", "text": message, "wrap": True},
+    ]
+    return wrap_card(body, [{"type": "Action.OpenUrl", "title": "Renew token", "url": TOKEN_SETTINGS_URL}])
 
 
 def main() -> None:
@@ -171,7 +188,13 @@ def main() -> None:
 
     run_started_at = datetime.now(UTC)
     since = read_watermark()
-    me, pull_requests = search_pull_requests(token, since)
+    try:
+        me, pull_requests = search_pull_requests(token, since)
+    except urllib.error.HTTPError as error:
+        # A dead token would otherwise fail silently in a repository nobody opens.
+        if error.code in (401, 403):
+            post_json(webhook_url, build_alert_card(f"GitHub rejected the token ({error.code})."), {})
+        raise
 
     sent = 0
     for pull_request in pull_requests:
