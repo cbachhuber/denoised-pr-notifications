@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.11"
 # dependencies = []
 # ///
 """Push activity on pull requests I'm involved in to a Microsoft Teams chat.
