@@ -41,10 +41,23 @@ For each matching pull request the script collects comments, review verdicts, in
 ## Setup
 
 1. **Create the Teams webhook.**
-   In Teams open the **Workflows** app, create from the template *Post to a chat when a webhook request is received*, target the chat with Flow bot, and copy the generated URL.
+   In Teams open the **Workflows** app and create from the template *Post to a channel when a webhook request is received*, targeting a channel, then copy the generated URL.
    This must be a Workflows webhook — classic Office 365 connector webhooks were switched off in May 2026.
 
-2. **Create a personal access token.**
+   Target a **channel**, not a private chat.
+   Posting to the self-chat fails with `Call made for a thread which is not a ChatThread`, because Graph will not let a bot write there.
+
+2. **Clone the flow to drop the attribution footer.**
+   Cards sent by a flow created from a template carry a `<Name> used a Workflow template to send this card. Get template` line.
+   It is appended by Power Automate and is not part of the payload, so it cannot be removed from the card JSON — but a copied flow has no originating template and therefore no footer.
+
+   At [make.powerautomate.com](https://make.powerautomate.com/): **My flows** → open the flow → **Save As** → name it → **Save**.
+   Then reopen the copy from **My flows** and click **Turn On**; copies are created disabled.
+   Turn the original off so it cannot double-post.
+
+   The copy has a **different webhook URL**, so redo step 4 with it.
+
+3. **Create a personal access token.**
    GitHub has no API for creating tokens, so this step is browser-only:
 
    ```text
@@ -54,17 +67,17 @@ For each matching pull request the script collects comments, review verdicts, in
    Use a **classic** token with only the `repo` scope, and set *No expiration* if enterprise policy allows it.
    Fine-grained tokens are capped at 366 days and need org approval, so they cost more maintenance here.
 
-3. **Store both secrets.**
+4. **Store both secrets.**
 
    ```bash
    gh secret set TEAMS_WEBHOOK_URL --repo cbachhuber/denoised-teams-notifications
    gh secret set PR_NOTIFY_TOKEN   --repo cbachhuber/denoised-teams-notifications
    ```
 
-4. **Trigger the first run** from the Actions tab or with `gh workflow run pr-teams-notify.yml`.
+5. **Trigger the first run** from the Actions tab or with `gh workflow run pr-teams-notify.yml`.
    A cold start looks back one hour, so expect a small burst.
 
-5. **Keep the repository private.**
+6. **Keep the repository private.**
    Scheduled workflows are auto-disabled after 60 days of inactivity in *public* repositories only, and this repository will never receive commits.
 
 ## Configuration
