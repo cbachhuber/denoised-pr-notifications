@@ -80,14 +80,16 @@ Suppressing those as "self-merges" would hide exactly the case worth knowing abo
    https://github.com/settings/tokens/new?scopes=repo&description=denoised-teams-notifications
    ```
 
+   On GitHub Enterprise, swap the host for your own, e.g. `https://YOUR-HOST.ghe.com/settings/tokens/new?...`.
+
    Use a **classic** token with only the `repo` scope, and set *No expiration* if enterprise policy allows it.
    Fine-grained tokens are capped at 366 days and need org approval, so they cost more maintenance here.
 
 4. **Store both secrets.**
 
    ```bash
-   gh secret set TEAMS_WEBHOOK_URL --repo cbachhuber/denoised-teams-notifications
-   gh secret set PR_NOTIFY_TOKEN   --repo cbachhuber/denoised-teams-notifications
+   gh secret set TEAMS_WEBHOOK_URL
+   gh secret set PR_NOTIFY_TOKEN
    ```
 
 5. **Trigger the first run** from the Actions tab or with `gh workflow run pr-teams-notify.yml`.
@@ -102,13 +104,21 @@ Suppressing those as "self-merges" would hide exactly the case worth knowing abo
 | --- | --- | --- | --- |
 | `GH_TOKEN` | yes | — | Classic PAT with `repo` scope |
 | `TEAMS_WEBHOOK_URL` | yes | — | Teams Workflows webhook |
-| `GITHUB_GRAPHQL_URL` | no | `https://api.github.com/graphql` | API endpoint |
-| `TOKEN_SETTINGS_URL` | no | `https://github.com/settings/tokens` | Deep link in the failure alert |
+| `GITHUB_GRAPHQL_URL` | no | set by the runner, else `https://api.github.com/graphql` | API endpoint |
+| `TOKEN_SETTINGS_URL` | no | `$GITHUB_SERVER_URL/settings/tokens` | Deep link in the failure alert |
 | `IGNORED_AUTHORS` | no | `github-actions` | Comma-separated logins to suppress entirely |
 | `IGNORED_REVIEW_AUTHORS` | no | `copilot-pull-request-reviewer` | Logins whose review *summaries* are suppressed; their inline comments still arrive |
 | `STATE_FILE` | no | `.state/watermark` | Where the watermark is kept |
 
 Copilot's review summary is already suppressed by default; move `copilot-pull-request-reviewer` into `IGNORED_AUTHORS` as well if its inline comments also become noise.
+
+GitHub Actions sets `GITHUB_GRAPHQL_URL` and `GITHUB_SERVER_URL` to whichever host the workflow runs on, so GitHub Enterprise needs no extra configuration.
+Only override them when running the script outside Actions.
+
+## Reusing this
+
+This repository works as a GitHub template: create your own from it, then follow the setup above.
+The only per-user configuration is the two secrets — the search is scoped by `involves:@me`, which resolves to whoever owns the token.
 
 ## Operating notes
 
@@ -161,7 +171,7 @@ uv run pr_notify.py                             # needs GH_TOKEN and TEAMS_WEBHO
 
 | Approach | Why it was rejected |
 | --- | --- |
-| **GitHub for Teams app**, `@GitHub subscribe owner/repo pulls comments reviews` | Subscriptions are repo-scoped, not participation-scoped, so it delivers everyone's activity on the whole repository. It is also a GHEC/GHES integration and does not cover `my_org.ghe.com` data residency, which is where most of our pull requests live. |
+| **GitHub for Teams app**, `@GitHub subscribe owner/repo pulls comments reviews` | Subscriptions are repo-scoped, not participation-scoped, so it delivers everyone's activity on the whole repository. It is also a GHEC/GHES integration and does not cover Enterprise Cloud with data residency (`*.ghe.com`), which is where most of our pull requests live. |
 | **Email notifications filtered on the `Cc` reason address** (`comment@noreply.github.com` and friends) | Tested and disproven. A thread that arrives as `review_requested` keeps that reason after reviewing it and opening a discussion thread, so the wanted and unwanted mail is indistinguishable. |
 | **Notifications REST API**, `GET /notifications?participating=true` | Exposes the same sticky `reason` field, so it fails for exactly the same reason. The participating stream also includes team mentions by definition. |
 | **Thread subscription endpoint** as a participation test | GitHub creates a subscription for team mentions and review requests too, so `subscribed: true` does not imply genuine participation. |

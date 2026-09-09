@@ -27,7 +27,7 @@ jobs:
           key: watermark-${{ github.run_id }}
           restore-keys: watermark-
 
-      # Pinned: resolving "latest" calls the github.com API, which the GHE GITHUB_TOKEN cannot authenticate.
+      # Pinned: resolving "latest" calls the github.com API, which a GitHub Enterprise GITHUB_TOKEN cannot authenticate.
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.12.10"
