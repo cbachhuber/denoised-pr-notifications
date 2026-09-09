@@ -78,15 +78,13 @@ def test_reports_a_merge_that_happened_after_the_watermark() -> None:
     assert kinds(merged) == ["Merged"]
 
 
-@pytest.mark.parametrize(
-    ("case", "merged_at", "merged_by"),
-    [
-        ("the merge predates the watermark", BEFORE, "colleague"),
-        ("I merged it myself, so it is not news", AFTER, ME),
-    ],
-)
-def test_ignores_merges_that_are_not_news(case: str, merged_at: str, merged_by: str) -> None:
-    assert kinds(pull_request(mergedAt=merged_at, mergedBy={"login": merged_by})) == [], case
+def test_reports_my_own_merge_because_the_merge_queue_credits_the_enqueuer() -> None:
+    merged = pull_request(mergedAt=AFTER, mergedBy={"login": ME})
+    assert kinds(merged) == ["Merged"]
+
+
+def test_ignores_a_merge_that_predates_the_watermark() -> None:
+    assert kinds(pull_request(mergedAt=BEFORE, mergedBy={"login": "colleague"})) == []
 
 
 def test_truncates_long_bodies_but_keeps_the_link() -> None:

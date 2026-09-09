@@ -160,9 +160,11 @@ def collect_events(pull_request: dict[str, Any], since: datetime, me: str) -> li
             events.append({"kind": kind, "actor": login_of(review["author"]), **_body(review)})
 
     merged_at = pull_request["mergedAt"]
-    merged_by = login_of(pull_request["mergedBy"])
-    if merged_at and datetime.fromisoformat(merged_at) > since and worth_reporting(merged_by):
-        events.append({"kind": "Merged", "actor": merged_by, "url": pull_request["url"], "preview": ""})
+    # The merge queue credits whoever enqueued the pull request, so "merged by me" is still news.
+    if merged_at and datetime.fromisoformat(merged_at) > since:
+        events.append(
+            {"kind": "Merged", "actor": login_of(pull_request["mergedBy"]), "url": pull_request["url"], "preview": ""}
+        )
 
     return events
 

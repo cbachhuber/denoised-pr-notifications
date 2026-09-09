@@ -46,10 +46,13 @@ Whether someone else's pull request was approved or merged is not my business, e
 | Comment in the conversation | Reported | Only if I have commented there too |
 | Inline review comment | Reported | Only in review threads I am part of |
 | Review verdict (approved, changes requested) | Reported | Ignored |
-| Merge | Reported | Ignored |
+| Merge | Reported, even if I pressed merge myself | Ignored |
 | Anything that `@`-mentions me | Reported | Reported |
 
 Copilot's *Pull request overview* review summary is suppressed via `IGNORED_REVIEW_AUTHORS`, while its inline review comments still come through, since those are the ones with something to say.
+
+Merges are reported even when GitHub credits them to me, because the merge queue attributes a merge to whoever enqueued the pull request.
+Suppressing those as "self-merges" would hide exactly the case worth knowing about, where the merge lands minutes after I walked away.
 
 ## Setup
 
