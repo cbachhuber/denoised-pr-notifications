@@ -107,6 +107,45 @@ def test_the_search_excludes_review_requests() -> None:
     assert "review-requested" not in build_search_query(SINCE)
 
 
+def someone_elses_pull_request(**overrides: Any) -> dict[str, Any]:
+    return pull_request(author={"login": "colleague"}, **overrides)
+
+
+@pytest.mark.parametrize(
+    ("case", "overrides"),
+    [
+        ("an approval", {"reviews": {"nodes": [review(state="APPROVED")]}}),
+        ("a merge", {"mergedAt": AFTER, "mergedBy": {"login": "someone"}}),
+        ("chatter in a conversation I never joined", {"comments": {"nodes": [comment()]}}),
+    ],
+)
+def test_ignores_activity_on_pull_requests_i_did_not_author(case: str, overrides: dict[str, Any]) -> None:
+    assert kinds(someone_elses_pull_request(**overrides)) == [], case
+
+
+def test_reports_replies_in_a_conversation_i_joined() -> None:
+    joined = {"nodes": [comment(author=ME, created_at=BEFORE), comment()]}
+    assert kinds(someone_elses_pull_request(comments=joined)) == ["Comment"]
+
+
+def test_reports_replies_only_in_the_review_threads_i_am_part_of() -> None:
+    my_thread = {"comments": {"nodes": [comment(author=ME, created_at=BEFORE), comment()]}}
+    someone_elses_thread = {"comments": {"nodes": [comment()]}}
+    threads = {"nodes": [my_thread, someone_elses_thread]}
+    assert kinds(someone_elses_pull_request(reviewThreads=threads)) == ["Review comment"]
+
+
+def test_reports_a_direct_mention_even_where_i_am_a_stranger() -> None:
+    summoned = {"nodes": [comment(body=f"could @{ME} weigh in?")]}
+    assert kinds(someone_elses_pull_request(comments=summoned)) == ["Comment"]
+
+
+def test_drops_the_copilot_overview_but_keeps_its_inline_comments() -> None:
+    overview = review(author="copilot-pull-request-reviewer", state="COMMENTED", body="## Pull request overview")
+    inline = {"nodes": [{"comments": {"nodes": [comment(author="copilot-pull-request-reviewer")]}}]}
+    assert kinds(pull_request(reviews={"nodes": [overview]}, reviewThreads=inline)) == ["Review comment"]
+
+
 def test_a_replay_window_overrides_the_watermark(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     state = tmp_path / "watermark"
     state.write_text("2026-09-08T14:17:21+00:00")

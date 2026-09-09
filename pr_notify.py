@@ -24,6 +24,8 @@ GRAPHQL_URL = os.environ.get("GITHUB_GRAPHQL_URL", "https://api.github.com/graph
 TOKEN_SETTINGS_URL = os.environ.get("TOKEN_SETTINGS_URL", "https://github.com/settings/tokens")
 STATE_FILE = Path(os.environ.get("STATE_FILE", ".state/watermark"))
 IGNORED_AUTHORS = frozenset(os.environ.get("IGNORED_AUTHORS", "github-actions").split(","))
+# Suppresses only the review summary; inline comments from the same author are still worth reading.
+IGNORED_REVIEW_AUTHORS = frozenset(os.environ.get("IGNORED_REVIEW_AUTHORS", "copilot-pull-request-reviewer").split(","))
 COLD_START_LOOKBACK = timedelta(hours=1)
 BODY_PREVIEW_CHARS = 400
 
@@ -113,7 +115,11 @@ def login_of(node: dict[str, Any] | None) -> str:
 
 
 def collect_events(pull_request: dict[str, Any], since: datetime, me: str) -> list[dict[str, str]]:
-    """Return the activity on one pull request that happened after ``since`` and is worth telling me about."""
+    """Return the activity on one pull request that happened after ``since`` and is worth telling me about.
+
+    On pull requests I did not author, only threads I am actually in qualify: whether someone else's
+    pull request got approved or merged is not my business, even if I reviewed it.
+    """
 
     def worth_reporting(login: str) -> bool:
         return login != me and login not in IGNORED_AUTHORS
@@ -121,22 +127,37 @@ def collect_events(pull_request: dict[str, Any], since: datetime, me: str) -> li
     def is_new(entry: dict[str, Any]) -> bool:
         return datetime.fromisoformat(entry["createdAt"]) > since and worth_reporting(login_of(entry.get("author")))
 
+    def i_wrote_one_of(entries: list[dict[str, Any]]) -> bool:
+        return any(login_of(entry["author"]) == me for entry in entries)
+
+    def addressed_to_me(entry: dict[str, Any]) -> bool:
+        return f"@{me}" in (entry["body"] or "")
+
+    mine = login_of(pull_request["author"]) == me
+    conversation = pull_request["comments"]["nodes"]
     events: list[dict[str, str]] = []
 
-    for comment in pull_request["comments"]["nodes"]:
-        if is_new(comment):
+    in_conversation = mine or i_wrote_one_of(conversation)
+    for comment in conversation:
+        if is_new(comment) and (in_conversation or addressed_to_me(comment)):
             events.append({"kind": "Comment", "actor": login_of(comment["author"]), **_body(comment)})
+
+    for thread in pull_request["reviewThreads"]["nodes"]:
+        in_thread = mine or i_wrote_one_of(thread["comments"]["nodes"])
+        for comment in thread["comments"]["nodes"]:
+            if is_new(comment) and (in_thread or addressed_to_me(comment)):
+                events.append({"kind": "Review comment", "actor": login_of(comment["author"]), **_body(comment)})
+
+    if not mine:
+        return events
 
     for review in pull_request["reviews"]["nodes"]:
         # A COMMENTED review with no body is just the envelope around inline comments.
-        if is_new(review) and (review["body"] or review["state"] != "COMMENTED"):
+        if not is_new(review) or login_of(review["author"]) in IGNORED_REVIEW_AUTHORS:
+            continue
+        if review["body"] or review["state"] != "COMMENTED":
             kind = f"Review: {review['state'].replace('_', ' ').title()}"
             events.append({"kind": kind, "actor": login_of(review["author"]), **_body(review)})
-
-    for thread in pull_request["reviewThreads"]["nodes"]:
-        for comment in thread["comments"]["nodes"]:
-            if is_new(comment):
-                events.append({"kind": "Review comment", "actor": login_of(comment["author"]), **_body(comment)})
 
     merged_at = pull_request["mergedAt"]
     merged_by = login_of(pull_request["mergedBy"])

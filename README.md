@@ -36,7 +36,20 @@ That single predicate is what removes the `CODEOWNERS` noise structurally rather
 | Someone reviews a pull request I opened | Yes |
 | A pull request I am involved in is merged | Yes |
 
-For each matching pull request the script collects comments, review verdicts, inline review comments and the merge, keeps only those newer than the watermark, drops anything authored by me or by a bot, and posts each one as an Adaptive Card.
+For each matching pull request the script collects comments, review verdicts, inline review comments and the merge, keeps only those newer than the watermark, and drops anything I wrote myself or that came from a bot.
+
+Authorship then decides how much of it is worth hearing about.
+Whether someone else's pull request was approved or merged is not my business, even when I reviewed it, so only threads I am genuinely part of survive:
+
+| Event | On a pull request I authored | On someone else's |
+| --- | --- | --- |
+| Comment in the conversation | Reported | Only if I have commented there too |
+| Inline review comment | Reported | Only in review threads I am part of |
+| Review verdict (approved, changes requested) | Reported | Ignored |
+| Merge | Reported | Ignored |
+| Anything that `@`-mentions me | Reported | Reported |
+
+Copilot's *Pull request overview* review summary is suppressed via `IGNORED_REVIEW_AUTHORS`, while its inline review comments still come through, since those are the ones with something to say.
 
 ## Setup
 
@@ -88,10 +101,11 @@ For each matching pull request the script collects comments, review verdicts, in
 | `TEAMS_WEBHOOK_URL` | yes | — | Teams Workflows webhook |
 | `GITHUB_GRAPHQL_URL` | no | `https://api.github.com/graphql` | API endpoint |
 | `TOKEN_SETTINGS_URL` | no | `https://github.com/settings/tokens` | Deep link in the failure alert |
-| `IGNORED_AUTHORS` | no | `github-actions` | Comma-separated logins to suppress |
+| `IGNORED_AUTHORS` | no | `github-actions` | Comma-separated logins to suppress entirely |
+| `IGNORED_REVIEW_AUTHORS` | no | `copilot-pull-request-reviewer` | Logins whose review *summaries* are suppressed; their inline comments still arrive |
 | `STATE_FILE` | no | `.state/watermark` | Where the watermark is kept |
 
-Add `copilot-pull-request-reviewer` to `IGNORED_AUTHORS` if automated review comments become noise.
+Copilot's review summary is already suppressed by default; move `copilot-pull-request-reviewer` into `IGNORED_AUTHORS` as well if its inline comments also become noise.
 
 ## Operating notes
 
