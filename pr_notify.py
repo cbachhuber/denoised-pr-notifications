@@ -29,6 +29,7 @@ IGNORED_AUTHORS = frozenset(os.environ.get("IGNORED_AUTHORS", "github-actions").
 # Suppresses only the review summary; inline comments from the same author are still worth reading.
 IGNORED_REVIEW_AUTHORS = frozenset(os.environ.get("IGNORED_REVIEW_AUTHORS", "copilot-pull-request-reviewer").split(","))
 COLD_START_LOOKBACK = timedelta(hours=1)
+ALERT_INTERVAL = timedelta(hours=1)
 BODY_PREVIEW_CHARS = 400
 
 QUERY = """
@@ -216,6 +217,16 @@ def build_alert_card(message: str) -> dict[str, Any]:
     return wrap_card(body, [{"type": "Action.OpenUrl", "title": "Renew token", "url": TOKEN_SETTINGS_URL}])
 
 
+def alert(webhook_url: str, message: str) -> None:
+    """Report a broken notifier, at most once an hour so a minutely schedule cannot spam the channel."""
+    stamp = STATE_FILE.with_name("last-alert")
+    if stamp.exists() and datetime.now(UTC) - datetime.fromtimestamp(stamp.stat().st_mtime, UTC) < ALERT_INTERVAL:
+        return
+    post_json(webhook_url, build_alert_card(message), {})
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.touch()
+
+
 def main() -> None:
     token = os.environ["GH_TOKEN"]
     webhook_url = os.environ["TEAMS_WEBHOOK_URL"]
@@ -227,7 +238,7 @@ def main() -> None:
     except urllib.error.HTTPError as error:
         # A dead token would otherwise fail silently in a repository nobody opens.
         if error.code in (401, 403):
-            post_json(webhook_url, build_alert_card(f"GitHub rejected the token ({error.code})."), {})
+            alert(webhook_url, f"GitHub rejected the token ({error.code}).")
         raise
 
     sent: list[int] = []

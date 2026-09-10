@@ -98,6 +98,32 @@ Suppressing those as "self-merges" would hide exactly the case worth knowing abo
 6. **Keep the repository private.**
    Scheduled workflows are auto-disabled after 60 days of inactivity in *public* repositories only, and this repository will never receive commits.
 
+## Scheduling
+
+Two options. The script is identical either way — it reads everything from the environment and keeps its watermark in a file.
+
+**GitHub Actions** (the workflow in this repository) needs no machine of your own and emails you when a run fails, but the shortest schedule GitHub allows is 5 minutes, `schedule` is best-effort, and every run bills a full minute even though a run takes ~15 seconds.
+
+**Cron on an always-on machine** gives one-minute latency, costs no Actions minutes, and needs no personal access token, because `run.sh` borrows the token from `gh auth token`.
+Nothing expires and there is no browser step.
+
+```bash
+mkdir -p ~/.config/pr-notify && chmod 700 ~/.config/pr-notify
+cat > ~/.config/pr-notify/env <<'EOF'
+TEAMS_WEBHOOK_URL=https://...
+GH_HOST=github.com
+EOF
+chmod 600 ~/.config/pr-notify/env
+
+crontab -e   # * * * * * $HOME/gh-pr-teams-notify/run.sh
+```
+
+`GH_HOST` drives both the `gh` credential lookup and the API endpoint, so Enterprise users set it once and nothing else.
+Use cron rather than a systemd user timer: user units stop when your last login session ends unless lingering is enabled, which needs a privileged step, whereas cron runs from boot regardless.
+
+Cron reports failures to nobody, so `run.sh` posts a card when a run exits non-zero, and `pr_notify.py` throttles its own alerts to one an hour — at a minutely schedule an unthrottled alert would become sixty cards.
+A scheduler that stops entirely is still silent; `tail ~/.local/state/pr-notify/log` is the check.
+
 ## Configuration
 
 | Variable | Required | Default | Purpose |
