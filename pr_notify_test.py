@@ -14,6 +14,7 @@ ME = "chris"
 SINCE = datetime(2026, 9, 8, 11, 0, tzinfo=UTC)
 BEFORE = "2026-09-08T10:00:00Z"
 AFTER = "2026-09-08T12:00:00Z"
+LATER = "2026-09-08T13:00:00Z"
 
 
 def comment(author: str = "colleague", created_at: str = AFTER, body: str = "a remark") -> dict[str, Any]:
@@ -131,6 +132,23 @@ def test_reports_replies_only_in_the_review_threads_i_am_part_of() -> None:
     someone_elses_thread = {"comments": {"nodes": [comment()]}}
     threads = {"nodes": [my_thread, someone_elses_thread]}
     assert kinds(someone_elses_pull_request(reviewThreads=threads)) == ["Review comment"]
+
+
+def test_ignores_thread_replies_that_predate_my_arrival() -> None:
+    # Joining an old thread should not retroactively subscribe me to what was already said in it.
+    already_there = comment(created_at=AFTER)
+    threads = {"nodes": [{"comments": {"nodes": [already_there, comment(author=ME, created_at=LATER)]}}]}
+    assert kinds(someone_elses_pull_request(reviewThreads=threads)) == []
+
+
+def test_reports_thread_replies_that_follow_my_arrival() -> None:
+    threads = {"nodes": [{"comments": {"nodes": [comment(author=ME, created_at=AFTER), comment(created_at=LATER)]}}]}
+    assert kinds(someone_elses_pull_request(reviewThreads=threads)) == ["Review comment"]
+
+
+def test_ignores_conversation_comments_that_predate_my_arrival() -> None:
+    joined_late = {"nodes": [comment(created_at=AFTER), comment(author=ME, created_at=LATER)]}
+    assert kinds(someone_elses_pull_request(comments=joined_late)) == []
 
 
 def test_reports_a_direct_mention_even_where_i_am_a_stranger() -> None:

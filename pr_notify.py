@@ -130,25 +130,36 @@ def collect_events(pull_request: dict[str, Any], since: datetime, me: str) -> li
     def is_new(entry: dict[str, Any]) -> bool:
         return datetime.fromisoformat(entry["createdAt"]) > since and worth_reporting(login_of(entry.get("author")))
 
-    def i_wrote_one_of(entries: list[dict[str, Any]]) -> bool:
-        return any(login_of(entry["author"]) == me for entry in entries)
-
     def addressed_to_me(entry: dict[str, Any]) -> bool:
         return f"@{me}" in (entry["body"] or "")
 
     mine = login_of(pull_request["author"]) == me
+
+    def joined_at(entries: list[dict[str, Any]]) -> datetime | None:
+        spoke = [datetime.fromisoformat(e["createdAt"]) for e in entries if login_of(e["author"]) == me]
+        return min(spoke) if spoke else None
+
+    def follows_me(entry: dict[str, Any], joined: datetime | None) -> bool:
+        """Replies older than my arrival belong to a conversation that was never mine."""
+        if mine:
+            return True
+        if joined and datetime.fromisoformat(entry["createdAt"]) > joined:
+            return True
+        return addressed_to_me(entry)
+
     conversation = pull_request["comments"]["nodes"]
     events: list[dict[str, str]] = []
 
-    in_conversation = mine or i_wrote_one_of(conversation)
+    joined_conversation = joined_at(conversation)
     for comment in conversation:
-        if is_new(comment) and (in_conversation or addressed_to_me(comment)):
+        if is_new(comment) and follows_me(comment, joined_conversation):
             events.append({"kind": "Comment", "actor": login_of(comment["author"]), **_body(comment)})
 
     for thread in pull_request["reviewThreads"]["nodes"]:
-        in_thread = mine or i_wrote_one_of(thread["comments"]["nodes"])
-        for comment in thread["comments"]["nodes"]:
-            if is_new(comment) and (in_thread or addressed_to_me(comment)):
+        replies = thread["comments"]["nodes"]
+        joined_thread = joined_at(replies)
+        for comment in replies:
+            if is_new(comment) and follows_me(comment, joined_thread):
                 events.append({"kind": "Review comment", "actor": login_of(comment["author"]), **_body(comment)})
 
     if not mine:
