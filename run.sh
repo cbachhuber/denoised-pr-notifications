@@ -14,7 +14,7 @@ ALERT_STAMP="$STATE_DIR/last-wrapper-alert"
 mkdir -p "$STATE_DIR"
 # A line per minute grows without bound, and failures add a traceback each time.
 if [ -f "$LOG" ] && [ "$(wc -c <"$LOG")" -gt 262144 ]; then
-    tail -n 200 "$LOG" >"$LOG.new" && mv "$LOG.new" "$LOG"
+    tail -n 10000 "$LOG" >"$LOG.new" && mv "$LOG.new" "$LOG"
 fi
 
 # set -a: sourcing alone would leave these as shell variables, invisible to the child process.
