@@ -113,13 +113,16 @@ Nothing expires and there is no browser step.
 ```bash
 mkdir -p ~/.config/pr-notify && chmod 700 ~/.config/pr-notify
 cat > ~/.config/pr-notify/env <<'EOF'
-TEAMS_WEBHOOK_URL=https://...
+TEAMS_WEBHOOK_URL='https://...'
 GH_HOST=github.com
 EOF
 chmod 600 ~/.config/pr-notify/env
 
 crontab -e   # * * * * * $HOME/gh-pr-teams-notify/run.sh
 ```
+
+Single-quote the webhook URL.
+Power Automate URLs contain `&`, which makes an unquoted assignment a background job, so the variable silently ends up empty rather than truncated.
 
 `GH_HOST` drives both the `gh` credential lookup and the API endpoint, so Enterprise users set it once and nothing else.
 Use cron rather than a systemd user timer: user units stop when your last login session ends unless lingering is enabled, which needs a privileged step, whereas cron runs from boot regardless.

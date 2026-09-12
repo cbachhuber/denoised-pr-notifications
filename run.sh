@@ -12,11 +12,22 @@ LOG="$STATE_DIR/log"
 ALERT_STAMP="$STATE_DIR/last-wrapper-alert"
 
 mkdir -p "$STATE_DIR"
+# A line per minute grows without bound, and failures add a traceback each time.
+if [ -f "$LOG" ] && [ "$(wc -c <"$LOG")" -gt 262144 ]; then
+    tail -n 200 "$LOG" >"$LOG.new" && mv "$LOG.new" "$LOG"
+fi
+
 # set -a: sourcing alone would leave these as shell variables, invisible to the child process.
 set -a
 # shellcheck disable=SC1090
 [ -r "$ENV_FILE" ] && . "$ENV_FILE"
 set +a
+
+# An unquoted webhook URL contains &, which backgrounds the assignment and silently yields nothing.
+if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
+    echo "$(date -Is) TEAMS_WEBHOOK_URL is empty; single-quote the value in $ENV_FILE" >>"$LOG"
+    exit 1
+fi
 
 STATE_FILE="${STATE_FILE:-$STATE_DIR/watermark}"
 export STATE_FILE
