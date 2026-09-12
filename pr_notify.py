@@ -217,7 +217,7 @@ def format_message(pull_request: dict[str, Any], event: dict[str, str]) -> str:
         return f"[{actor} merged {title}]({url})"
     if verb := REVIEW_VERBS.get(event["kind"].removeprefix("Review: ")):
         return f"[{actor} {verb} {title}]({url})"
-    return f"{actor} commented: [{event['preview'] or title}]({url})"
+    return f"{actor} [commented on {title}]({url}): {event['preview']}"
 
 
 def build_card(pull_request: dict[str, Any], event: dict[str, str]) -> dict[str, Any]:
