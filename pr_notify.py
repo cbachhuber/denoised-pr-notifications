@@ -207,17 +207,22 @@ def wrap_card(body: list[dict[str, Any]], actions: list[dict[str, Any]]) -> dict
     }
 
 
-def build_card(pull_request: dict[str, Any], event: dict[str, str]) -> dict[str, Any]:
-    heading = f"{event['kind']} by {event['actor']}"
-    subtitle = f"{pull_request['repository']['nameWithOwner']} #{pull_request['number']} · {pull_request['title']}"
-    body: list[dict[str, Any]] = [
-        {"type": "TextBlock", "text": heading, "weight": "Bolder", "size": "Medium", "wrap": True},
-        {"type": "TextBlock", "text": subtitle, "isSubtle": True, "spacing": "None", "wrap": True},
-    ]
-    if event["preview"]:
-        body.append({"type": "TextBlock", "text": event["preview"], "wrap": True, "separator": True})
+# Verdicts and merges are terse links; actual comment text is worth showing in full.
+REVIEW_VERBS = {"Approved": "approved", "Changes Requested": "requested changes on", "Commented": "commented on"}
 
-    return wrap_card(body, [{"type": "Action.OpenUrl", "title": "Open on GitHub", "url": event["url"]}])
+
+def format_message(pull_request: dict[str, Any], event: dict[str, str]) -> str:
+    actor, url, title = event["actor"], event["url"], pull_request["title"]
+    if event["kind"] == "Merged":
+        return f"[{actor} merged {title}]({url})"
+    if verb := REVIEW_VERBS.get(event["kind"].removeprefix("Review: ")):
+        return f"[{actor} {verb} {title}]({url})"
+    return f"{actor} commented: [{event['preview'] or title}]({url})"
+
+
+def build_card(pull_request: dict[str, Any], event: dict[str, str]) -> dict[str, Any]:
+    text = format_message(pull_request, event)
+    return wrap_card([{"type": "TextBlock", "text": text, "wrap": True}], [])
 
 
 def build_alert_card(message: str) -> dict[str, Any]:
