@@ -159,6 +159,12 @@ The run start time is written to `.state/watermark` and carried between runs by 
 Cache keys are immutable, so each run writes a new key and `restore-keys` picks the most recent.
 The watermark only advances on success, so a failed run produces a delayed notification rather than a lost one.
 
+**Overlapping windows.**
+GitHub's search index trails reality by seconds, and a minutely watermark can outrun it: an approval submitted six seconds before a run was invisible to that run's search, and by the next run its `updatedAt` already sat behind the watermark, so it was lost for good.
+Both the search and the event window therefore reach `SEARCH_LOOKBACK` further back than the watermark, which gives the index ten minutes to catch up.
+Overlap alone would resend, so every delivered event's URL is recorded in `seen` next to the watermark and skipped on later passes; entries expire after `SEEN_RETENTION`.
+Widening only the search is not enough — the pull request becomes visible again but its events are already older than the watermark, so both windows have to move together.
+
 **Token expiry.**
 A dead token in a repository nobody opens would otherwise fail silently, so a `401`/`403` posts a "PR notifier is broken" card with a renewal link, and the run still exits non-zero — which also triggers GitHub's own workflow-failure email to whoever last edited the cron.
 

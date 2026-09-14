@@ -174,6 +174,21 @@ def test_a_replay_window_overrides_the_watermark(monkeypatch: pytest.MonkeyPatch
     assert pr_notify.read_watermark() == datetime(2026, 9, 8, 14, 17, 21, tzinfo=UTC)
 
 
+def test_the_search_reaches_back_further_than_the_watermark() -> None:
+    # A pull request indexed late must stay searchable after its events have aged past the watermark.
+    assert "updated:>2026-09-08T10:50:00Z" in build_search_query(SINCE)
+
+
+def test_remembers_what_it_sent_and_forgets_it_once_it_ages_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    monkeypatch.setattr(pr_notify, "SEEN_FILE", tmp_path / "seen")
+    now = datetime(2026, 9, 14, 14, 0, tzinfo=UTC)
+    pr_notify.write_seen({"https://ghe/fresh": now - timedelta(minutes=5), "https://ghe/stale": now - timedelta(hours=3)})
+
+    assert set(pr_notify.read_seen(now)) == {"https://ghe/fresh"}
+
+
 @pytest.mark.parametrize(
     ("case", "moment"),
     [
@@ -183,4 +198,4 @@ def test_a_replay_window_overrides_the_watermark(monkeypatch: pytest.MonkeyPatch
     ],
 )
 def test_the_search_timestamp_is_always_utc(case: str, moment: datetime) -> None:
-    assert "updated:>2026-09-08T11:00:00Z" in build_search_query(moment), case
+    assert "updated:>2026-09-08T10:50:00Z" in build_search_query(moment), case

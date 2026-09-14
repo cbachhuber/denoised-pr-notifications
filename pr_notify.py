@@ -29,6 +29,11 @@ IGNORED_AUTHORS = frozenset(os.environ.get("IGNORED_AUTHORS", "github-actions").
 # Suppresses only the review summary; inline comments from the same author are still worth reading.
 IGNORED_REVIEW_AUTHORS = frozenset(os.environ.get("IGNORED_REVIEW_AUTHORS", "copilot-pull-request-reviewer").split(","))
 COLD_START_LOOKBACK = timedelta(hours=1)
+# GitHub's search index trails reality by seconds, which a minutely watermark can outrun. Both the search and
+# the event window therefore reach back past the watermark, and SEEN_FILE stops the overlap repeating itself.
+SEARCH_LOOKBACK = timedelta(minutes=10)
+SEEN_RETENTION = timedelta(hours=2)
+SEEN_FILE = STATE_FILE.with_name("seen")
 ALERT_INTERVAL = timedelta(hours=1)
 BODY_PREVIEW_CHARS = 400
 
@@ -90,10 +95,28 @@ def write_watermark(value: datetime) -> None:
     STATE_FILE.write_text(value.isoformat())
 
 
+def read_seen(now: datetime) -> dict[str, datetime]:
+    """Events already notified, so an overlapping window delivers each one exactly once."""
+    if not SEEN_FILE.exists():
+        return {}
+    cutoff = now - SEEN_RETENTION
+    seen = {}
+    for line in SEEN_FILE.read_text().splitlines():
+        stamp, _, url = line.partition("\t")
+        if url and datetime.fromisoformat(stamp) > cutoff:
+            seen[url] = datetime.fromisoformat(stamp)
+    return seen
+
+
+def write_seen(seen: dict[str, datetime]) -> None:
+    SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SEEN_FILE.write_text("".join(f"{stamp.isoformat()}\t{url}\n" for url, stamp in seen.items()))
+
+
 def build_search_query(since: datetime) -> str:
     # involves: is author OR commenter OR assignee OR mentions, and deliberately not review-requested,
     # which is what keeps CODEOWNERS team requests out of the feed.
-    stamp = since.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = (since - SEARCH_LOOKBACK).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return f"is:pr involves:@me updated:>{stamp} sort:updated-desc"
 
 
@@ -258,14 +281,19 @@ def main() -> None:
         raise
 
     sent: list[int] = []
+    seen = read_seen(run_started_at)
     for pull_request in pull_requests:
-        for event in collect_events(pull_request, since, me):
+        for event in collect_events(pull_request, since - SEARCH_LOOKBACK, me):
+            if event["url"] in seen:
+                continue
             # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
             status, body, _ = post_json(webhook_url, build_card(pull_request, event), {})
+            seen[event["url"]] = run_started_at
             sent.append(status)
             if body.strip():
                 print(f"webhook replied {status}: {body[:200]!r}")
 
+    write_seen(seen)
     write_watermark(run_started_at)
     print(
         f"since={since.isoformat()} pull_requests={len(pull_requests)} "
