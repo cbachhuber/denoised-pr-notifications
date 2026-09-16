@@ -10,7 +10,7 @@ Crucially *not*: the pull requests where a team I belong to was auto-requested a
 GitHub's own notification stream cannot express "threads I am actually engaged with".
 
 Every notification thread carries a `reason` (`author`, `comment`, `review_requested`, `team_mention`, …).
-Because our repositories use teams as code owners, a large share of threads arrive with `reason: review_requested`, most of which are for pull requests nobody expects me to look at.
+Because big repositories use teams as code owners, a large share of threads arrive with `reason: review_requested`, most of which are for pull requests nobody expects me to look at.
 
 The obvious fix — filter those out — does not work, because **the reason is sticky**.
 Once a thread is tagged `review_requested`, it keeps that tag forever, even after I review the pull request and start a discussion on it.
@@ -20,7 +20,7 @@ This tool therefore ignores notifications entirely and reconstructs participatio
 
 ## How it works
 
-Every 15 minutes a scheduled workflow runs one GraphQL search:
+It runs one GraphQL search:
 
 ```text
 is:pr involves:@me updated:>{watermark} sort:updated-desc
@@ -36,7 +36,7 @@ That single predicate is what removes the `CODEOWNERS` noise structurally rather
 | Someone reviews a pull request I opened | Yes |
 | A pull request I am involved in is merged | Yes |
 
-For each matching pull request the script collects comments, review verdicts, inline review comments and the merge, keeps only those newer than the watermark, and drops anything I wrote myself or that came from a bot.
+For each matching pull request the script collects comments, review verdicts, inline review comments and the merge, keeps only those newer than the watermark, and drops anything I wrote myself.
 
 Authorship then decides how much of it is worth hearing about.
 Whether someone else's pull request was approved or merged is not my business, even when I reviewed it, so only threads I am genuinely part of survive:
@@ -46,7 +46,7 @@ Whether someone else's pull request was approved or merged is not my business, e
 | Comment in the conversation | Reported | Only what follows my first comment there |
 | Inline review comment | Reported | Only what follows my first comment in that thread |
 | Review verdict (approved, changes requested) | Reported | Ignored |
-| Merge | Reported, even if I pressed merge myself | Ignored |
+| Merge | Reported, even if I enqued/merged myself | Ignored |
 | Anything that `@`-mentions me | Reported | Reported |
 
 Copilot's *Pull request overview* review summary is suppressed via `IGNORED_REVIEW_AUTHORS`, while its inline review comments still come through, since those are the ones with something to say.
@@ -54,19 +54,21 @@ Copilot's *Pull request overview* review summary is suppressed via `IGNORED_REVI
 Merges are reported even when GitHub credits them to me, because the merge queue attributes a merge to whoever enqueued the pull request.
 Suppressing those as "self-merges" would hide exactly the case worth knowing about, where the merge lands minutes after I walked away.
 
-Participation is a cutoff, not a flag.
-Joining a thread that is already running subscribes me to what comes next, not to what was said before I arrived.
-
 ## Setup
 
-1. **Create the Teams webhook.**
+### Running from GitHub actions
+
+1. **Fork this repo**
+   Such that you have your own repo, where your secrets and scheduled workflow can live
+
+2. **Create the Teams webhook.**
    In Teams open the **Workflows** app and create from the template *Post to a channel when a webhook request is received*, targeting a channel, then copy the generated URL.
    This must be a Workflows webhook — classic Office 365 connector webhooks were switched off in May 2026.
 
    Target a **channel**, not a private chat.
    Posting to the self-chat fails with `Call made for a thread which is not a ChatThread`, because Graph will not let a bot write there.
 
-2. **Clone the flow to drop the attribution footer.**
+3. **Optional: Clone the flow to drop the attribution footer.**
    Cards sent by a flow created from a template carry a `<Name> used a Workflow template to send this card. Get template` line.
    It is appended by Power Automate and is not part of the payload, so it cannot be removed from the card JSON — but a copied flow has no originating template and therefore no footer.
 
@@ -74,9 +76,9 @@ Joining a thread that is already running subscribes me to what comes next, not t
    Then reopen the copy from **My flows** and click **Turn On**; copies are created disabled.
    Turn the original off so it cannot double-post.
 
-   The copy has a **different webhook URL**, so redo step 4 with it.
+   The copy has a **different webhook URL**, so do step 4 with it.
 
-3. **Create a personal access token.**
+4. **Create a personal access token.**
    GitHub has no API for creating tokens, so this step is browser-only:
 
    ```text
@@ -85,32 +87,30 @@ Joining a thread that is already running subscribes me to what comes next, not t
 
    On GitHub Enterprise, swap the host for your own, e.g. `https://YOUR-HOST.ghe.com/settings/tokens/new?...`.
 
-   Use a **classic** token with only the `repo` scope, and set *No expiration* if enterprise policy allows it.
-   Fine-grained tokens are capped at 366 days and need org approval, so they cost more maintenance here.
+   Use a **classic** token with only the `repo` scope.
+   Fine-grained tokens are capped at 366 days and need org approval, so they cost more maintenance.
 
-4. **Store both secrets.**
+5. **Store both secrets.**
 
    ```bash
    gh secret set TEAMS_WEBHOOK_URL
    gh secret set PR_NOTIFY_TOKEN
    ```
 
-5. **Trigger the first run** from the Actions tab or with `gh workflow run pr-teams-notify.yml`.
-   A cold start looks back one hour, so expect a small burst.
+6. **Trigger the first run** from the Actions tab or with `gh workflow run pr-teams-notify.yml`.
+   A cold start looks back one hour, so expect a small burst of notifications.
 
-6. **Keep the repository private.**
+7. **Keep the repository private.**
    Scheduled workflows are auto-disabled after 60 days of inactivity in *public* repositories only, and this repository will never receive commits.
 
-## Scheduling
+### Running from your local machine
 
-Two options. The script is identical either way — it reads everything from the environment and keeps its watermark in a file.
-
-**GitHub Actions** (the workflow in this repository) needs no machine of your own and emails you when a run fails, but the shortest schedule GitHub allows is 5 minutes, `schedule` is best-effort, and every run bills a full minute even though a run takes ~15 seconds.
-
-**Cron on an always-on machine** gives one-minute latency, costs no Actions minutes, and needs no personal access token, because `run.sh` borrows the token from `gh auth token`.
+This gives lower latency, costs no GitHub Actions minutes, and needs no personal access token, because `run.sh` borrows the token from `gh auth token`.
+You'll need to be `gh auth login`-ed, though.
 Nothing expires and there is no browser step.
 
 ```bash
+# clone repo to $HOME/gh-pr-teams-notify
 mkdir -p ~/.config/pr-notify && chmod 700 ~/.config/pr-notify
 cat > ~/.config/pr-notify/env <<'EOF'
 TEAMS_WEBHOOK_URL='https://...'
@@ -118,7 +118,7 @@ GH_HOST=github.com
 EOF
 chmod 600 ~/.config/pr-notify/env
 
-crontab -e   # * * * * * $HOME/gh-pr-teams-notify/run.sh
+crontab -e   # append  `* * * * * $HOME/gh-pr-teams-notify/run.sh`
 ```
 
 Single-quote the webhook URL.
@@ -146,58 +146,6 @@ Copilot's review summary is already suppressed by default; move `copilot-pull-re
 
 GitHub Actions sets `GITHUB_GRAPHQL_URL` and `GITHUB_SERVER_URL` to whichever host the workflow runs on, so GitHub Enterprise needs no extra configuration.
 Only override them when running the script outside Actions.
-
-## Reusing this
-
-This repository works as a GitHub template: create your own from it, then follow the setup above.
-The only per-user configuration is the two secrets — the search is scoped by `involves:@me`, which resolves to whoever owns the token.
-
-## Operating notes
-
-**Watermark.**
-The run start time is written to `.state/watermark` and carried between runs by `actions/cache`.
-Cache keys are immutable, so each run writes a new key and `restore-keys` picks the most recent.
-The watermark only advances on success, so a failed run produces a delayed notification rather than a lost one.
-
-**Token expiry.**
-A dead token in a repository nobody opens would otherwise fail silently, so a `401`/`403` posts a "PR notifier is broken" card with a renewal link, and the run still exits non-zero — which also triggers GitHub's own workflow-failure email to whoever last edited the cron.
-
-**Delivery is fire-and-forget.**
-A Workflows webhook returns `202 Accepted` and runs the flow asynchronously, so a 2xx means "queued", never "delivered".
-If the flow itself fails — a wrong recipient, an expired connection — the notifier cannot tell, and the watermark advances anyway, so those cards are lost.
-When that happens, fix the flow and then replay the window:
-
-```bash
-gh workflow run pr-teams-notify.yml -f since=2026-09-08T14:00:00+00:00
-```
-
-The flow's own run history in Teams (**Workflows → My flows → run history**) is the only authoritative record of delivery.
-A Graph error of `Call made for a thread which is not a ChatThread` there means the *Post card in a chat or channel* action is aimed at something that is not a postable chat — typically the self-chat or a meeting chat.
-Set **Post in** to *Chat with Flow bot* with yourself as recipient.
-
-**Schedule drift.**
-GitHub cron is best-effort and is delayed or dropped under load, especially on the hour.
-The watermark makes this harmless.
-
-**Diagnosing a suspiciously quiet feed.**
-Each run logs the window it covered:
-
-```text
-since=2026-09-08T09:30:00+00:00 pull_requests=2 notifications=0
-```
-
-Across consecutive runs, `since` should equal the previous run's start time.
-If every run instead reports a `since` exactly one hour in the past, the cache is not restoring and each run is cold-starting, which silently drops everything older than an hour.
-Genuinely quiet periods and a broken watermark both show `notifications=0`, so this line is the only way to tell them apart.
-
-## Development
-
-No third-party runtime dependencies; `uv` supplies the interpreter via PEP 723 inline metadata.
-
-```bash
-uv run --with pytest pytest pr_notify_test.py   # unit tests
-uv run pr_notify.py                             # needs GH_TOKEN and TEAMS_WEBHOOK_URL
-```
 
 ## Alternatives evaluated
 
