@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
@@ -188,8 +189,28 @@ def test_reports_events_in_the_order_they_happened_not_by_category() -> None:
     assert kinds(out_of_order) == ["Review: Approved", "Comment"]
 
 
-def test_remembers_what_it_sent_and_forgets_it_once_it_ages_out(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+def graphql_replying(payload: dict[str, Any]) -> Any:
+    return lambda *_args, **_kwargs: (200, json.dumps(payload).encode(), {})
+
+
+def test_a_spent_rate_limit_is_distinguishable_from_a_real_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The budget refills hourly, so a run should skip rather than wake anyone up.
+    spent = [{"type": "RATE_LIMIT", "message": "API rate limit already exceeded"}]
+    monkeypatch.setattr(pr_notify, "post_json", graphql_replying({"errors": spent}))
+
+    with pytest.raises(pr_notify.RateLimited):
+        pr_notify.search_pull_requests("token", SINCE)
+
+
+def test_other_graphql_errors_still_fail_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pr_notify, "post_json", graphql_replying({"errors": [{"message": "boom"}]}))
+
+    with pytest.raises(RuntimeError) as caught:
+        pr_notify.search_pull_requests("token", SINCE)
+    assert not isinstance(caught.value, pr_notify.RateLimited)
+
+
+def test_remembers_what_it_sent_and_forgets_it_once_it_ages_out(    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
     monkeypatch.setattr(pr_notify, "SEEN_FILE", tmp_path / "seen")
     now = datetime(2026, 9, 14, 14, 0, tzinfo=UTC)

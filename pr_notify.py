@@ -123,6 +123,10 @@ def build_search_query(since: datetime) -> str:
     return f"is:pr involves:@me updated:>{stamp} sort:updated-desc"
 
 
+class RateLimited(RuntimeError):
+    """The hourly GraphQL budget is spent. Self-healing, so a run skips rather than fails."""
+
+
 def search_pull_requests(token: str, since: datetime) -> tuple[str, list[dict[str, Any]]]:
     _, raw, headers = post_json(
         GRAPHQL_URL,
@@ -133,8 +137,10 @@ def search_pull_requests(token: str, since: datetime) -> tuple[str, list[dict[st
     if expiry := headers.get("github-authentication-token-expiration"):
         print(f"token expires: {expiry}")
     response = json.loads(raw)
-    if "errors" in response:
-        raise RuntimeError(f"GraphQL query failed: {response['errors']}")
+    if errors := response.get("errors"):
+        if any(error.get("type") == "RATE_LIMIT" for error in errors):
+            raise RateLimited(errors[0].get("message", "rate limited"))
+        raise RuntimeError(f"GraphQL query failed: {errors}")
     data = response["data"]
     return data["viewer"]["login"], [node for node in data["search"]["nodes"] if node]
 
@@ -283,6 +289,10 @@ def main() -> None:
     since = read_watermark()
     try:
         me, pull_requests = search_pull_requests(token, since)
+    except RateLimited as limited:
+        # Leaving the watermark alone means the next run that gets through covers this gap.
+        print(f"skipped: {limited}")
+        return
     except urllib.error.HTTPError as error:
         # A dead token would otherwise fail silently in a repository nobody opens.
         if error.code in (401, 403):
