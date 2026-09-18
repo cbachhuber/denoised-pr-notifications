@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
@@ -34,6 +35,8 @@ COLD_START_LOOKBACK = timedelta(hours=1)
 SEARCH_LOOKBACK = timedelta(minutes=10)
 SEEN_RETENTION = timedelta(hours=2)
 SEEN_FILE = STATE_FILE.with_name("seen")
+# Each post starts its own Power Automate run and those race, so cards are spaced rather than fired together.
+POST_SPACING = float(os.environ.get("POST_SPACING", "1.5"))
 ALERT_INTERVAL = timedelta(hours=1)
 BODY_PREVIEW_CHARS = 400
 
@@ -200,16 +203,22 @@ def collect_events(pull_request: dict[str, Any], since: datetime, me: str) -> li
     # The merge queue credits whoever enqueued the pull request, so "merged by me" is still news.
     if merged_at and datetime.fromisoformat(merged_at) > since:
         events.append(
-            {"kind": "Merged", "actor": login_of(pull_request["mergedBy"]), "url": pull_request["url"], "preview": ""}
+            {
+                "kind": "Merged",
+                "actor": login_of(pull_request["mergedBy"]),
+                "at": merged_at,
+                "url": pull_request["url"],
+                "preview": "",
+            }
         )
 
-    return events
+    return sorted(events, key=lambda event: event["at"])
 
 
 def _body(entry: dict[str, Any]) -> dict[str, str]:
     body = (entry["body"] or "").strip()
     preview = body[:BODY_PREVIEW_CHARS] + ("…" if len(body) > BODY_PREVIEW_CHARS else "")
-    return {"url": entry["url"], "preview": preview}
+    return {"at": entry["createdAt"], "url": entry["url"], "preview": preview}
 
 
 def wrap_card(body: list[dict[str, Any]], actions: list[dict[str, Any]]) -> dict[str, Any]:
@@ -282,16 +291,21 @@ def main() -> None:
 
     sent: list[int] = []
     seen = read_seen(run_started_at)
-    for pull_request in pull_requests:
-        for event in collect_events(pull_request, since - SEARCH_LOOKBACK, me):
-            if event["url"] in seen:
-                continue
-            # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
-            status, body, _ = post_json(webhook_url, build_card(pull_request, event), {})
-            seen[event["url"]] = run_started_at
-            sent.append(status)
-            if body.strip():
-                print(f"webhook replied {status}: {body[:200]!r}")
+    pending = [
+        (pull_request, event)
+        for pull_request in pull_requests
+        for event in collect_events(pull_request, since - SEARCH_LOOKBACK, me)
+        if event["url"] not in seen
+    ]
+    for index, (pull_request, event) in enumerate(sorted(pending, key=lambda pair: pair[1]["at"])):
+        if index:
+            time.sleep(POST_SPACING)
+        # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
+        status, body, _ = post_json(webhook_url, build_card(pull_request, event), {})
+        seen[event["url"]] = run_started_at
+        sent.append(status)
+        if body.strip():
+            print(f"webhook replied {status}: {body[:200]!r}")
 
     write_seen(seen)
     write_watermark(run_started_at)

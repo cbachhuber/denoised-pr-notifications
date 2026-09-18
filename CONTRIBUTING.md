@@ -1,5 +1,4 @@
 # Development
-
 No third-party runtime dependencies; `uv` supplies the interpreter via PEP 723 inline metadata.
 
 ```bash

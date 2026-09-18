@@ -179,6 +179,15 @@ def test_the_search_reaches_back_further_than_the_watermark() -> None:
     assert "updated:>2026-09-08T10:50:00Z" in build_search_query(SINCE)
 
 
+def test_reports_events_in_the_order_they_happened_not_by_category() -> None:
+    # Cards race each other through Power Automate, so they must at least leave here in order.
+    out_of_order = pull_request(
+        comments={"nodes": [comment(created_at=LATER)]},
+        reviews={"nodes": [review(state="APPROVED", created_at=AFTER)]},
+    )
+    assert kinds(out_of_order) == ["Review: Approved", "Comment"]
+
+
 def test_remembers_what_it_sent_and_forgets_it_once_it_ages_out(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:

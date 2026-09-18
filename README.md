@@ -54,6 +54,10 @@ Copilot's *Pull request overview* review summary is suppressed via `IGNORED_REVI
 Merges are reported even when GitHub credits them to me, because the merge queue attributes a merge to whoever enqueued the pull request.
 Suppressing those as "self-merges" would hide exactly the case worth knowing about, where the merge lands minutes after I walked away.
 
+Events are sent oldest first, and `POST_SPACING` seconds apart.
+Each webhook post starts its own Power Automate run and those run concurrently, so two cards fired milliseconds apart can be posted in either order — an approval and the merge that followed it 44 seconds later once arrived backwards.
+Spacing them is a mitigation rather than a guarantee; only batching a run's events into a single card would make the order certain.
+
 ## Setup
 
 ### Running from GitHub actions
@@ -140,6 +144,7 @@ A scheduler that stops entirely is still silent; `tail ~/.local/state/pr-notify/
 | `TOKEN_SETTINGS_URL` | no | `$GITHUB_SERVER_URL/settings/tokens` | Deep link in the failure alert |
 | `IGNORED_AUTHORS` | no | `github-actions` | Comma-separated logins to suppress entirely |
 | `IGNORED_REVIEW_AUTHORS` | no | `copilot-pull-request-reviewer` | Logins whose review *summaries* are suppressed; their inline comments still arrive |
+| `POST_SPACING` | no | `1.5` | Seconds between cards, so concurrent Power Automate runs do not reorder them |
 | `STATE_FILE` | no | `.state/watermark` | Where the watermark is kept |
 
 Copilot's review summary is already suppressed by default; move `copilot-pull-request-reviewer` into `IGNORED_AUTHORS` as well if its inline comments also become noise.
