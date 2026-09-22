@@ -60,6 +60,9 @@ Spacing them is a mitigation rather than a guarantee; only batching a run's even
 
 ## Setup
 
+You can either run this [as a github action](#running-from-github-actions) or [from your local machine](#running-from-your-local-machine).
+Github actions runs at most every 5 minutes and is more expensive, but probably has a higher availability guarantee than your local machine.
+
 ### Running from GitHub actions
 
 1. **Fork this repo**
