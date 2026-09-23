@@ -60,20 +60,19 @@ Spacing them is a mitigation rather than a guarantee; only batching a run's even
 
 ## Setup
 
-You can either run this [as a github action](#running-from-github-actions) or [from your local machine](#running-from-your-local-machine).
-Github actions runs at most every 5 minutes and is more expensive, but probably has a higher availability guarantee than your local machine.
+After setting up [common steps](#common-steps), you can either run this [as a github action](#running-from-github-actions) or [from your local machine](#running-from-your-local-machine).
+Github actions runs at most every 5 minutes, is more expensive, and requires a dedicated github token, but probably has a higher availability guarantee than your local machine.
 
-### Running from GitHub actions
+### Common steps
 
-1. **Fork this repo**
-   Such that you have your own repo, where your secrets and scheduled workflow can live
+1. Create a **channel** where the notifications will be sent, not a private chat.
+   Posting to the self-chat fails with `Call made for a thread which is not a ChatThread`, because Graph will not let a bot write there.
 
 2. **Create the Teams webhook.**
    In Teams open the **Workflows** app and create from the template *Post to a channel when a webhook request is received*, targeting a channel, then copy the generated URL.
    This must be a Workflows webhook — classic Office 365 connector webhooks were switched off in May 2026.
 
-   Target a **channel**, not a private chat.
-   Posting to the self-chat fails with `Call made for a thread which is not a ChatThread`, because Graph will not let a bot write there.
+   Target the channel you created.
 
 3. **Optional: Clone the flow to drop the attribution footer.**
    Cards sent by a flow created from a template carry a `<Name> used a Workflow template to send this card. Get template` line.
@@ -83,9 +82,15 @@ Github actions runs at most every 5 minutes and is more expensive, but probably 
    Then reopen the copy from **My flows** and click **Turn On**; copies are created disabled.
    Turn the original off so it cannot double-post.
 
-   The copy has a **different webhook URL**, so do step 4 with it.
+   The copy has a **different webhook URL**, so continue using that.
 
-4. **Create a personal access token.**
+### Running from GitHub actions
+
+1. **Fork this repo**
+   Such that you have your own repo, where your secrets and scheduled workflow can live
+
+
+2. **Create a personal access token.**
    GitHub has no API for creating tokens, so this step is browser-only:
 
    ```text
@@ -97,35 +102,35 @@ Github actions runs at most every 5 minutes and is more expensive, but probably 
    Use a **classic** token with only the `repo` scope.
    Fine-grained tokens are capped at 366 days and need org approval, so they cost more maintenance.
 
-5. **Store both secrets.**
+3. **Store both secrets.**
 
    ```bash
    gh secret set TEAMS_WEBHOOK_URL
    gh secret set PR_NOTIFY_TOKEN
    ```
 
-6. **Trigger the first run** from the Actions tab or with `gh workflow run pr-teams-notify.yml`.
+4. **Trigger the first run** from the Actions tab or with `gh workflow run pr-teams-notify.yml`.
    A cold start looks back one hour, so expect a small burst of notifications.
 
-7. **Keep the repository private.**
+5. **Keep the repository private.**
    Scheduled workflows are auto-disabled after 60 days of inactivity in *public* repositories only, and this repository will never receive commits.
 
 ### Running from your local machine
 
-This gives lower latency, costs no GitHub Actions minutes, and needs no personal access token, because `run.sh` borrows the token from `gh auth token`.
-You'll need to be `gh auth login`-ed, though.
-Nothing expires and there is no browser step.
+This needs no personal access token for GitHub, because [run.sh](run.sh) borrows the token from `gh auth token`.
+You'll need to be `gh auth login`-ed on your machine, though.
+Nothing expires and there is no browser setup step.
 
 ```bash
-# clone repo to $HOME/gh-pr-teams-notify
+git clone git@github.com:cbachhuber/denoised-teams-notifications.git ~/gh-pr-teams-notify
 mkdir -p ~/.config/pr-notify && chmod 700 ~/.config/pr-notify
 cat > ~/.config/pr-notify/env <<'EOF'
 TEAMS_WEBHOOK_URL='https://...'
-GH_HOST=github.com
+# GH_HOST=my_org.ghe.com  # only needed if you're not on github.com
 EOF
 chmod 600 ~/.config/pr-notify/env
 
-crontab -e   # append  `* * * * * $HOME/gh-pr-teams-notify/run.sh`
+crontab -e   # then append  `* * * * * $HOME/gh-pr-teams-notify/run.sh`
 ```
 
 Single-quote the webhook URL.
