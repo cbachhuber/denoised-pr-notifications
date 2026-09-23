@@ -122,6 +122,9 @@ You'll need to be `gh auth login`-ed on your machine, though.
 Nothing expires and there is no browser setup step.
 
 ```bash
+# Install uv
+cat curl -LsSf https://astral.sh/uv/install.sh | sh
+
 git clone git@github.com:cbachhuber/denoised-teams-notifications.git ~/gh-pr-teams-notify
 mkdir -p ~/.config/pr-notify && chmod 700 ~/.config/pr-notify
 cat > ~/.config/pr-notify/env <<'EOF'
