@@ -1,4 +1,4 @@
-# denoised-teams-notifications
+# denoised-pr-notifications
 
 Sends Microsoft Teams notifications for GitHub pull request activity that actually involves me, and nothing else.
 
@@ -94,7 +94,7 @@ Github actions runs at most every 5 minutes, is more expensive, and requires a d
    GitHub has no API for creating tokens, so this step is browser-only:
 
    ```text
-   https://github.com/settings/tokens/new?scopes=repo&description=denoised-teams-notifications
+   https://github.com/settings/tokens/new?scopes=repo&description=denoised-pr-notifications
    ```
 
    On GitHub Enterprise, swap the host for your own, e.g. `https://YOUR-HOST.ghe.com/settings/tokens/new?...`.
@@ -109,7 +109,7 @@ Github actions runs at most every 5 minutes, is more expensive, and requires a d
    gh secret set PR_NOTIFY_TOKEN
    ```
 
-4. **Trigger the first run** from the Actions tab or with `gh workflow run pr-teams-notify.yml`.
+4. **Trigger the first run** from the Actions tab or with `gh workflow run denoised-pr-notifications.yml`.
    A cold start looks back one hour, so expect a small burst of notifications.
 
 5. **Keep the repository private.**
@@ -125,7 +125,7 @@ Nothing expires and there is no browser setup step.
 # Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-git clone git@github.com:cbachhuber/denoised-teams-notifications.git ~/gh-pr-teams-notify
+git clone git@github.com:cbachhuber/denoised-pr-notifications.git ~/denoised-pr-notifications
 mkdir -p ~/.config/pr-notify && chmod 700 ~/.config/pr-notify
 cat > ~/.config/pr-notify/env <<'EOF'
 TEAMS_WEBHOOK_URL='https://...'
@@ -133,7 +133,7 @@ TEAMS_WEBHOOK_URL='https://...'
 EOF
 chmod 600 ~/.config/pr-notify/env
 
-crontab -e   # then append  `* * * * * $HOME/gh-pr-teams-notify/run.sh`
+crontab -e   # then append  `* * * * * $HOME/denoised-pr-notifications/run.sh`
 ```
 
 Single-quote the webhook URL.
