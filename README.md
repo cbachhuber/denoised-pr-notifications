@@ -44,15 +44,8 @@ These steps target MS Teams, but you can set up any service that provides a webh
    In Teams open the **Workflows** app and create from the template *Post to a channel when a webhook request is received*, targeting a channel, then copy the generated URL.
    This must be a Workflows webhook.
 
-3. **Optional: Clone the flow to drop the attribution footer.**
-   Cards sent by a flow created from a template carry a `<Name> used a Workflow template to send this card. Get template` line.
-   It is appended by Power Automate and is not part of the payload, so it cannot be removed from the card JSON — but a copied flow has no originating template and therefore no footer.
-
-   At [make.powerautomate.com](https://make.powerautomate.com/): **My flows** → open the flow → **Save As** → name it → **Save**.
-   Then reopen the copy from **My flows** and click **Turn On**; copies are created disabled.
-   Turn the original off so it cannot double-post.
-
-   The copy has a **different webhook URL**, so continue using that.
+3. That's it, you can proceed to [running from GitHub actions](#running-from-github-actions) or [from your local machine](#running-from-your-local-machine).
+   To avoid message footer `Foo Bar used a Workflow template to send this card. Get template` on every notification, you may optionally follow [these instructions](#optional-polish-drop-the-attribution-footer) before proceeding.
 
 ### Running from GitHub actions
 
@@ -114,6 +107,18 @@ Use cron rather than a systemd user timer: user units stop when your last login 
 
 Cron reports failures to nobody, so `run.sh` posts a card when a run exits non-zero, and `pr_notify.py` throttles its own alerts to one an hour — at a minutely schedule an unthrottled alert would become sixty cards.
 A scheduler that stops entirely is still silent; `tail ~/.local/state/pr-notify/log` is the check.
+
+### Optional polish: drop the attribution footer
+
+Cards sent by a flow created from a template carry a `<Name> used a Workflow template to send this card. Get template` line.
+It is appended by Power Automate and is not part of the payload, so it cannot be removed from the card JSON.
+However, a copied flow has no originating template and therefore no footer.
+
+1. At [make.powerautomate.com](https://make.powerautomate.com/): **My flows** → open the flow → **Save As** → name it → **Save**.
+2. Reopen the copy from **My flows** and click **Turn On**; copies are created disabled.
+3. Turn the original off so it cannot double-post.
+4. The copy has a **different webhook URL** — update `TEAMS_WEBHOOK_URL` (in your GitHub secret or local env file) to the copy's URL and continue using that.
+
 
 ## Configuration
 
