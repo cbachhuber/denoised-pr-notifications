@@ -1,9 +1,6 @@
 # denoised-pr-notifications
 
-Sends notifications for GitHub pull request activity that actually involves you, and nothing else.
-
-Specifically: send a notification for every comment on a thread you are participating in and any activity on a pull request you authored.
-Crucially *not*: the pull requests where a team you belong to was auto-requested as a reviewer via `CODEOWNERS`.
+Sends notifications for GitHub [pull request activity that actually involves you](#whats-reported), and nothing else.
 This is useful to get rid of irrelevant (noisy) notifications in repositories with many contributors.
 
 Notifications are sent to a webhook, currently with MS Teams' message format.
@@ -33,18 +30,19 @@ Copilot's *Pull request overview* review summary is suppressed via `IGNORED_REVI
 ## Setup
 
 After setting up [common steps](#common-steps), you can either run this [as a github action](#running-from-github-actions) or [from your local machine](#running-from-your-local-machine).
-Github actions runs at most every 5 minutes, is more expensive, and requires a dedicated github token, but probably has a higher availability guarantee than your local machine.
+Github actions run at most every 5 minutes, are more expensive, and require a dedicated github token. 
+On the other hand, they probably have a higher availability than your local machine.
 
 ### Common steps
+
+These steps target MS Teams, but you can set up any service that provides a webhook for sending notifications to.
 
 1. Create a **channel** where the notifications will be sent, not a private chat.
    Posting to the self-chat fails with `Call made for a thread which is not a ChatThread`, because Graph will not let a bot write there.
 
 2. **Create the Teams webhook.**
    In Teams open the **Workflows** app and create from the template *Post to a channel when a webhook request is received*, targeting a channel, then copy the generated URL.
-   This must be a Workflows webhook — classic Office 365 connector webhooks were switched off in May 2026.
-
-   Target the channel you created.
+   This must be a Workflows webhook.
 
 3. **Optional: Clone the flow to drop the attribution footer.**
    Cards sent by a flow created from a template carry a `<Name> used a Workflow template to send this card. Get template` line.
