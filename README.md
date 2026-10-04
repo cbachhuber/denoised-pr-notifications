@@ -1,45 +1,21 @@
 # denoised-pr-notifications
 
 Sends notifications for GitHub pull request activity that actually involves you, and nothing else.
-Notifications are sent to a webhook, currently supporting MS Teams.
-Can be used for any other webhook, too.
 
-Specifically: send a notification for every comment on a thread you are participating in, every review on a pull request you authored, and every merge of a pull request you are involved in.
+Specifically: send a notification for every comment on a thread you are participating in and any activity on a pull request you authored.
 Crucially *not*: the pull requests where a team you belong to was auto-requested as a reviewer via `CODEOWNERS`.
 This is useful to get rid of irrelevant (noisy) notifications in repositories with many contributors.
 
+Notifications are sent to a webhook, currently with MS Teams' message format.
+
 ## Why this exists
 
-GitHub's own notification stream cannot express "threads you are actually engaged with".
+In big repos where teams, not individuals own code, [GitHub's own notification stream](https://github.com/notifications) cannot express "threads you are actually engaged with".
+Typically, one gets a huge number of irrelevant notifications, rendering GitHub's notifications useless.
+There seems to be no freely available, effective notification service for the "big repo with teams owning code" scenario, see also [evaluated alternatives](#alternatives-evaluated).
+A working alternative that only Slack users have access to are [real-time notifications as part of Slack's scheduled reminders](https://docs.github.com/en/subscriptions-and-notifications/concepts/scheduled-reminders#:~:text=can%20also%20enable-,real%2Dtime,-alerts%20for%20scheduled).
 
-Every notification thread carries a `reason` (`author`, `comment`, `review_requested`, `team_mention`, …).
-Because big repositories use teams as code owners, a large share of threads arrive with `reason: review_requested`, most of which are for pull requests nobody expects you to look at.
-
-The obvious fix — filter those out — does not work, because **the reason is sticky**.
-Once a thread is tagged `review_requested`, it keeps that tag forever, even after you review the pull request and start a discussion on it.
-So `review_requested` cannot be distinguished from "team was pinged and you engaged deeply", and no filter over the notification stream can separate signal from noise.
-
-This tool therefore ignores notifications entirely and reconstructs participation from pull request data instead.
-
-## How it works
-
-It runs one GraphQL search:
-
-```text
-is:pr involves:@me updated:>{watermark} sort:updated-desc
-```
-
-`involves:` is an OR over **author, commenter, assignee and mentions** — and deliberately *not* review-requested.
-That single predicate is what removes the `CODEOWNERS` noise structurally rather than by filtering:
-
-| Situation | Matches `involves:@me`? |
-| --- | --- |
-| Your team is auto-requested for review, you ignore it | No — silent |
-| …and then you comment on it | Yes, from then on |
-| Someone reviews a pull request you opened | Yes |
-| A pull request you are involved in is merged | Yes |
-
-For each matching pull request the script collects comments, review verdicts, inline review comments and the merge, keeps only those newer than the watermark, and drops anything you wrote yourself.
+## What's reported
 
 Authorship then decides how much of it is worth hearing about.
 Whether someone else's pull request was approved or merged is not your business, even when you reviewed it, so only threads you are genuinely part of survive:
@@ -52,14 +28,7 @@ Whether someone else's pull request was approved or merged is not your business,
 | Merge | Reported, even if you enqueued/merged it yourself | Ignored |
 | Anything that `@`-mentions you | Reported | Reported |
 
-Copilot's *Pull request overview* review summary is suppressed via `IGNORED_REVIEW_AUTHORS`, while its inline review comments still come through, since those are the ones with something to say.
-
-Merges are reported even when GitHub credits them to you, because the merge queue attributes a merge to whoever enqueued the pull request.
-Suppressing those as "self-merges" would hide exactly the case worth knowing about, where the merge lands minutes after you walked away.
-
-Events are sent oldest first, and `POST_SPACING` seconds apart.
-Each webhook post starts its own Power Automate run and those run concurrently, so two cards fired milliseconds apart can be posted in either order — an approval and the merge that followed it 44 seconds later once arrived backwards.
-Spacing them is a mitigation rather than a guarantee; only batching a run's events into a single card would make the order certain.
+Copilot's *Pull request overview* review summary is suppressed via `IGNORED_REVIEW_AUTHORS`, while its addressable inline review comments still come through.
 
 ## Setup
 
@@ -173,7 +142,7 @@ Only override them when running the script outside Actions.
 | **GitHub for Teams app**, `@GitHub subscribe owner/repo pulls comments reviews` | Subscriptions are repo-scoped, not participation-scoped, so it delivers everyone's activity on the whole repository. It is also a GHEC/GHES integration and does not cover Enterprise Cloud with data residency (`*.ghe.com`), which is where many enterprise pull requests live. |
 | **Email notifications filtered on the `Cc` reason address** (`comment@noreply.github.com` and friends) | Tested and disproven. A thread that arrives as `review_requested` keeps that reason after reviewing it and opening a discussion thread, so the wanted and unwanted mail is indistinguishable. |
 | **Notifications REST API**, `GET /notifications?participating=true` | Exposes the same sticky `reason` field, so it fails for exactly the same reason. The participating stream also includes team mentions by definition. |
-| **[Gitify](https://github.com/gitify-app/gitify)**, a desktop notification client | A better renderer for GitHub's notification inbox, not a different source of truth, so it inherits every limitation of the row above — the sticky `reason` and the `CODEOWNERS` team noise arrive unchanged. Its own tracking issue [#890](https://github.com/gitify-app/gitify/issues/890) records that there is no GraphQL query for notifications at all, which rules out reconstructing participation from `involves:@me` the way this tool does. Linking to the comment that caused a notification has been a known gap since [#42](https://github.com/gitify-app/gitify/issues/42) and is still only partly solved; #890 notes `subject.latest_comment_url` does not point at the latest comment for discussions. `/notifications` also rejects fine-grained tokens ([#1492](https://github.com/gitify-app/gitify/issues/1492)) and GitHub App auth, so it needs a broad classic PAT. Filter naming is shaped by multi-forge support rather than GitHub's model, so options such as *Review request type: Direct* match nothing on GitHub, and filter interactions have misfired before ([#2914](https://github.com/gitify-app/gitify/issues/2914)). Finally it is a separate tray app rather than a message in the place the team already talks. Enterprise Cloud with data residency *is* supported ([#2560](https://github.com/gitify-app/gitify/issues/2560), January 2026), so `*.ghe.com` is not the obstacle here. |
+| **[Gitify](https://github.com/gitify-app/gitify)**, a desktop notification client | A better renderer for GitHub's notification inbox, not a different source of truth, so it inherits every limitation of the row above — the sticky `reason` and the `CODEOWNERS` team noise arrive unchanged. Its own tracking issue [#890](https://github.com/gitify-app/gitify/issues/890) records that there is no GraphQL query for notifications at all, which rules out reconstructing participation from `involves:@me` the way this tool does. Linking to the comment that caused a notification has been a known gap since [#42](https://github.com/gitify-app/gitify/issues/42) and is still only partly solved; #890 notes `subject.latest_comment_url` does not point at the latest comment for discussions. `/notifications` also rejects fine-grained tokens ([#1492](https://github.com/gitify-app/gitify/issues/1492)) and GitHub App auth, so it needs a broad classic PAT. Filter naming is shaped by multi-forge support rather than GitHub's model, so options such as *Review request type: Direct* match nothing on GitHub, and filter interactions have misfired before ([#2914](https://github.com/gitify-app/gitify/issues/2914)). |
 | **Thread subscription endpoint** as a participation test | GitHub creates a subscription for team mentions and review requests too, so `subscribed: true` does not imply genuine participation. |
 | **Team code review settings** — auto assignment plus *Only notify requested team members* | Does not fix stickiness for the pull requests you *are* assigned. It also only reduces noise if the team honours round-robin assignment; if someone else picks the review up, the assignee is pinged for work they will not do and the actual reviewer is not notified. Changing team-wide review routing to solve one person's notification problem is the wrong trade. |
 | **GitHub App installation token** instead of a PAT, to avoid expiry | Installation tokens authenticate as the app, so `involves:@me` and `viewer` resolve to the bot account. The design requires a user identity. |
