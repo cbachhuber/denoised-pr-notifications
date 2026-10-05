@@ -29,7 +29,7 @@ Copilot's *Pull request overview* review summary is suppressed via `IGNORED_REVI
 
 ## Setup
 
-After setting up [common steps](#common-steps), you can either run this [as a github action](#running-from-github-actions) or [from your local machine](#running-from-your-local-machine).
+After setting up [common steps](#common-steps), you can either run this [from your local machine](#running-from-your-local-machine) or [as a github action](#running-from-github-actions).
 Github actions run at most every 5 minutes, are more expensive, and require a dedicated github token. 
 On the other hand, they probably have a higher availability than your local machine.
 
@@ -46,6 +46,36 @@ These steps target MS Teams, but you can set up any service that provides a webh
 
 3. That's it, you can proceed to [running from GitHub actions](#running-from-github-actions) or [from your local machine](#running-from-your-local-machine).
    To avoid message footer `Foo Bar used a Workflow template to send this card. Get template` on every notification, you may optionally follow [these instructions](#optional-polish-drop-the-attribution-footer) before proceeding.
+
+### Running from your local machine
+
+This needs no personal access token for GitHub, because [run.sh](run.sh) borrows the token from `gh auth token`.
+You'll need to be `gh auth login`-ed on your machine, though.
+Nothing expires and there is no browser setup step.
+
+```bash
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+git clone git@github.com:cbachhuber/denoised-pr-notifications.git ~/denoised-pr-notifications
+mkdir -p ~/.config/pr-notify && chmod 700 ~/.config/pr-notify
+cat > ~/.config/pr-notify/env <<'EOF'
+TEAMS_WEBHOOK_URL='https://...'
+# GH_HOST=my_org.ghe.com  # only needed if you're not on github.com
+EOF
+chmod 600 ~/.config/pr-notify/env
+
+crontab -e   # then append  `* * * * * $HOME/denoised-pr-notifications/run.sh`
+```
+
+Single-quote the webhook URL.
+Power Automate URLs contain `&`, which makes an unquoted assignment a background job, so the variable silently ends up empty rather than truncated.
+
+`GH_HOST` drives both the `gh` credential lookup and the API endpoint, so Enterprise users set it once and nothing else.
+Use cron rather than a systemd user timer: user units stop when your last login session ends unless lingering is enabled, which needs a privileged step, whereas cron runs from boot regardless.
+
+Cron reports failures to nobody, so `run.sh` posts a card when a run exits non-zero, and `pr_notify.py` throttles its own alerts to one an hour — at a minutely schedule an unthrottled alert would become sixty cards.
+A scheduler that stops entirely is still silent; `tail ~/.local/state/pr-notify/log` is the check.
 
 ### Running from GitHub actions
 
@@ -77,36 +107,6 @@ These steps target MS Teams, but you can set up any service that provides a webh
 
 5. **Keep the repository private.**
    Scheduled workflows are auto-disabled after 60 days of inactivity in *public* repositories only, and this repository will never receive commits.
-
-### Running from your local machine
-
-This needs no personal access token for GitHub, because [run.sh](run.sh) borrows the token from `gh auth token`.
-You'll need to be `gh auth login`-ed on your machine, though.
-Nothing expires and there is no browser setup step.
-
-```bash
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-git clone git@github.com:cbachhuber/denoised-pr-notifications.git ~/denoised-pr-notifications
-mkdir -p ~/.config/pr-notify && chmod 700 ~/.config/pr-notify
-cat > ~/.config/pr-notify/env <<'EOF'
-TEAMS_WEBHOOK_URL='https://...'
-# GH_HOST=my_org.ghe.com  # only needed if you're not on github.com
-EOF
-chmod 600 ~/.config/pr-notify/env
-
-crontab -e   # then append  `* * * * * $HOME/denoised-pr-notifications/run.sh`
-```
-
-Single-quote the webhook URL.
-Power Automate URLs contain `&`, which makes an unquoted assignment a background job, so the variable silently ends up empty rather than truncated.
-
-`GH_HOST` drives both the `gh` credential lookup and the API endpoint, so Enterprise users set it once and nothing else.
-Use cron rather than a systemd user timer: user units stop when your last login session ends unless lingering is enabled, which needs a privileged step, whereas cron runs from boot regardless.
-
-Cron reports failures to nobody, so `run.sh` posts a card when a run exits non-zero, and `pr_notify.py` throttles its own alerts to one an hour — at a minutely schedule an unthrottled alert would become sixty cards.
-A scheduler that stops entirely is still silent; `tail ~/.local/state/pr-notify/log` is the check.
 
 ### Optional polish: drop the attribution footer
 
