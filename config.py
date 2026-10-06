@@ -10,9 +10,7 @@ from pathlib import Path
 SERVER_URL = os.environ.get("GITHUB_SERVER_URL") or "https://github.com"
 GRAPHQL_URL = os.environ.get("GITHUB_GRAPHQL_URL") or "https://api.github.com/graphql"
 TOKEN_SETTINGS_URL = os.environ.get("TOKEN_SETTINGS_URL") or f"{SERVER_URL}/settings/tokens"
-TIME_OF_LAST_RUN_FILE = Path(
-	os.environ.get("TIME_OF_LAST_RUN_FILE") or os.environ.get("STATE_FILE", ".state/time_of_last_run")
-)
+TIME_OF_LAST_RUN_FILE = Path( os.environ.get("TIME_OF_LAST_RUN_FILE", ".state/time_of_last_run"))
 IGNORED_AUTHORS = frozenset(os.environ.get("IGNORED_AUTHORS", "github-actions").split(","))
 # Suppresses only the review summary; inline comments from the same author are still worth reading.
 IGNORED_REVIEW_AUTHORS = frozenset(os.environ.get("IGNORED_REVIEW_AUTHORS", "copilot-pull-request-reviewer").split(","))
