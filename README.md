@@ -60,7 +60,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone git@github.com:cbachhuber/denoised-pr-notifications.git ~/denoised-pr-notifications
 mkdir -p ~/.config/pr-notify && chmod 700 ~/.config/pr-notify
 cat > ~/.config/pr-notify/env <<'EOF'
-TEAMS_WEBHOOK_URL='https://...'
+TEAMS_WEBHOOK_URL='https://...'  # quote the URL to ensure the '&' contained in the string isn't interpreted
 # GH_HOST=my_org.ghe.com  # only needed if you're not on github.com
 EOF
 chmod 600 ~/.config/pr-notify/env
@@ -68,14 +68,7 @@ chmod 600 ~/.config/pr-notify/env
 crontab -e   # then append  `* * * * * $HOME/denoised-pr-notifications/run.sh`
 ```
 
-Single-quote the webhook URL.
-Power Automate URLs contain `&`, which makes an unquoted assignment a background job, so the variable silently ends up empty rather than truncated.
-
-`GH_HOST` drives both the `gh` credential lookup and the API endpoint, so Enterprise users set it once and nothing else.
-Use cron rather than a systemd user timer: user units stop when your last login session ends unless lingering is enabled, which needs a privileged step, whereas cron runs from boot regardless.
-
-Cron reports failures to nobody, so `run.sh` posts a card when a run exits non-zero, and `pr_notify.py` throttles its own alerts to one an hour — at a minutely schedule an unthrottled alert would become sixty cards.
-A scheduler that stops entirely is still silent; `tail ~/.local/state/pr-notify/log` is the check.
+Cron reports failures to nobody, so `run.sh` posts a card when a run exits non-zero, and `pr_notify.py` throttles its own alerts to one an hour.
 
 ### Running from GitHub actions
 
@@ -92,8 +85,8 @@ A scheduler that stops entirely is still silent; `tail ~/.local/state/pr-notify/
 
    On GitHub Enterprise, swap the host for your own, e.g. `https://YOUR-HOST.ghe.com/settings/tokens/new?...`.
 
-   Use a **classic** token with only the `repo` scope.
-   Fine-grained tokens are capped at 366 days and need org approval, so they cost more maintenance.
+   Use a **classic** token with only the `repo` scope for minimal maintenance.
+   Fine-grained tokens are capped at 366 days and need org approval.
 
 3. **Store both secrets.**
 
@@ -110,7 +103,7 @@ A scheduler that stops entirely is still silent; `tail ~/.local/state/pr-notify/
 
 ### Optional polish: drop the attribution footer
 
-Cards sent by a flow created from a template carry a `<Name> used a Workflow template to send this card. Get template` line.
+Cards sent by a flow created from a template always carry advertisement `<Name> used a Workflow template to send this card. Get template`.
 It is appended by Power Automate and is not part of the payload, so it cannot be removed from the card JSON.
 However, a copied flow has no originating template and therefore no footer.
 
@@ -118,25 +111,6 @@ However, a copied flow has no originating template and therefore no footer.
 2. Reopen the copy from **My flows** and click **Turn On**; copies are created disabled.
 3. Turn the original off so it cannot double-post.
 4. The copy has a **different webhook URL** — update `TEAMS_WEBHOOK_URL` (in your GitHub secret or local env file) to the copy's URL and continue using that.
-
-
-## Configuration
-
-| Variable | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| `GH_TOKEN` | yes | — | Classic PAT with `repo` scope |
-| `TEAMS_WEBHOOK_URL` | yes | — | Teams Workflows webhook |
-| `GITHUB_GRAPHQL_URL` | no | set by the runner, else `https://api.github.com/graphql` | API endpoint |
-| `TOKEN_SETTINGS_URL` | no | `$GITHUB_SERVER_URL/settings/tokens` | Deep link in the failure alert |
-| `IGNORED_AUTHORS` | no | `github-actions` | Comma-separated logins to suppress entirely |
-| `IGNORED_REVIEW_AUTHORS` | no | `copilot-pull-request-reviewer` | Logins whose review *summaries* are suppressed; their inline comments still arrive |
-| `POST_SPACING` | no | `1.5` | Seconds between cards, so concurrent Power Automate runs do not reorder them |
-| `STATE_FILE` | no | `.state/watermark` | Where the watermark is kept |
-
-Copilot's review summary is already suppressed by default; move `copilot-pull-request-reviewer` into `IGNORED_AUTHORS` as well if its inline comments also become noise.
-
-GitHub Actions sets `GITHUB_GRAPHQL_URL` and `GITHUB_SERVER_URL` to whichever host the workflow runs on, so GitHub Enterprise needs no extra configuration.
-Only override them when running the script outside Actions.
 
 ## Alternatives evaluated
 
