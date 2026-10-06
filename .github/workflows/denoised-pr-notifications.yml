@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       since:
-        description: "Replay from this UTC timestamp, e.g. 2026-09-08T14:00:00+00:00 (blank uses the watermark)"
+        description: "Replay from this UTC timestamp, e.g. 2026-09-08T14:00:00+00:00 (blank uses the last-run time)"
         required: false
         type: string
 
@@ -20,12 +20,12 @@ jobs:
       - uses: actions/checkout@v5
 
       # Cache keys are immutable, so each run writes a new one and restore-keys picks the newest.
-      - name: Restore watermark
+      - name: Restore last-run time
         uses: actions/cache/restore@v4
         with:
           path: .state
-          key: watermark-${{ github.run_id }}
-          restore-keys: watermark-
+          key: time-of-last-run-${{ github.run_id }}
+          restore-keys: time-of-last-run-
 
       # Pinned: resolving "latest" calls the github.com API, which a GitHub Enterprise GITHUB_TOKEN cannot authenticate.
       - uses: astral-sh/setup-uv@v6
@@ -40,9 +40,9 @@ jobs:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
           SINCE: ${{ inputs.since }}
 
-      - name: Save watermark
+      - name: Save last-run time
         if: always()
         uses: actions/cache/save@v4
         with:
           path: .state
-          key: watermark-${{ github.run_id }}
+          key: time-of-last-run-${{ github.run_id }}

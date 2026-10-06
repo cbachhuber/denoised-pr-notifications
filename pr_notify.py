@@ -31,7 +31,7 @@ from config import (
     SEARCH_LOOKBACK,
     SEEN_FILE,
     SEEN_RETENTION,
-    STATE_FILE,
+    TIME_OF_LAST_RUN_FILE,
     TOKEN_SETTINGS_URL,
 )
 
@@ -79,18 +79,17 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> tup
         return response.status, response.read(), response.headers
 
 
-def read_watermark() -> datetime:
-    # Delivery is fire-and-forget, so a replay window is the only way to recover dropped cards.
+def read_time_of_last_run() -> datetime:
     if override := os.environ.get("SINCE", "").strip():
         return datetime.fromisoformat(override)
-    if STATE_FILE.exists():
-        return datetime.fromisoformat(STATE_FILE.read_text().strip())
+    if TIME_OF_LAST_RUN_FILE.exists():
+        return datetime.fromisoformat(TIME_OF_LAST_RUN_FILE.read_text().strip())
     return datetime.now(UTC) - COLD_START_LOOKBACK
 
 
-def write_watermark(value: datetime) -> None:
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(value.isoformat())
+def write_time_of_last_run(value: datetime) -> None:
+    TIME_OF_LAST_RUN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TIME_OF_LAST_RUN_FILE.write_text(value.isoformat())
 
 
 def read_seen(now: datetime) -> dict[str, datetime]:
@@ -268,7 +267,7 @@ def build_alert_card(message: str) -> dict[str, Any]:
 
 def alert(webhook_url: str, message: str) -> None:
     """Report a broken notifier, at most once an hour so a minutely schedule cannot spam the channel."""
-    stamp = STATE_FILE.with_name("last-alert")
+    stamp = TIME_OF_LAST_RUN_FILE.with_name("last-alert")
     if stamp.exists() and datetime.now(UTC) - datetime.fromtimestamp(stamp.stat().st_mtime, UTC) < ALERT_INTERVAL:
         return
     post_json(webhook_url, build_alert_card(message), {})
@@ -281,11 +280,11 @@ def main() -> None:
     webhook_url = os.environ["TEAMS_WEBHOOK_URL"]
 
     run_started_at = datetime.now(UTC)
-    since = read_watermark()
+    since = read_time_of_last_run()
     try:
         me, pull_requests = search_pull_requests(token, since)
     except RateLimited as limited:
-        # Leaving the watermark alone means the next run that gets through covers this gap.
+        # Leaving the last-run time alone means the next successful run covers this gap.
         print(f"skipped: {limited}")
         return
     except urllib.error.HTTPError as error:
@@ -313,7 +312,7 @@ def main() -> None:
             print(f"webhook replied {status}: {body[:200]!r}")
 
     write_seen(seen)
-    write_watermark(run_started_at)
+    write_time_of_last_run(run_started_at)
     print(
         f"since={since.isoformat()} pull_requests={len(pull_requests)} "
         f"notifications={len(sent)} webhook_status={sorted(set(sent))}"

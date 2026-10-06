@@ -29,8 +29,8 @@ if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
     exit 1
 fi
 
-STATE_FILE="${STATE_FILE:-$STATE_DIR/watermark}"
-export STATE_FILE
+TIME_OF_LAST_RUN_FILE="${TIME_OF_LAST_RUN_FILE:-${STATE_FILE:-$STATE_DIR/time_of_last_run}}"
+export TIME_OF_LAST_RUN_FILE
 if [ -z "${GH_TOKEN:-}" ]; then
     if [ -n "${GH_HOST:-}" ]; then
         GH_TOKEN=$(gh auth token --hostname "$GH_HOST" 2>/dev/null)

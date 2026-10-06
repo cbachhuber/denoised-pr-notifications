@@ -54,7 +54,7 @@ def test_reports_a_new_comment_from_someone_else() -> None:
     ("case", "node"),
     [
         ("my own comment", comment(author=ME)),
-        ("a comment older than the watermark", comment(created_at=BEFORE)),
+        ("a comment older than the last-run time", comment(created_at=BEFORE)),
         ("CI chatter from a bot", comment(author="github-actions")),
     ],
 )
@@ -75,7 +75,7 @@ def test_reports_inline_review_comments() -> None:
     assert kinds(pull_request(reviewThreads=threads)) == ["Review comment"]
 
 
-def test_reports_a_merge_that_happened_after_the_watermark() -> None:
+def test_reports_a_merge_that_happened_after_the_last_run_time() -> None:
     merged = pull_request(mergedAt=AFTER, mergedBy={"login": "colleague"})
     assert kinds(merged) == ["Merged"]
 
@@ -85,7 +85,7 @@ def test_reports_my_own_merge_because_the_merge_queue_credits_the_enqueuer() -> 
     assert kinds(merged) == ["Merged"]
 
 
-def test_ignores_a_merge_that_predates_the_watermark() -> None:
+def test_ignores_a_merge_that_predates_the_last_run_time() -> None:
     assert kinds(pull_request(mergedAt=BEFORE, mergedBy={"login": "colleague"})) == []
 
 
@@ -163,20 +163,20 @@ def test_drops_the_copilot_overview_but_keeps_its_inline_comments() -> None:
     assert kinds(pull_request(reviews={"nodes": [overview]}, reviewThreads=inline)) == ["Review comment"]
 
 
-def test_a_replay_window_overrides_the_watermark(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
-    state = tmp_path / "watermark"
+def test_a_replay_window_overrides_the_last_run_time(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    state = tmp_path / "time_of_last_run"
     state.write_text("2026-09-08T14:17:21+00:00")
-    monkeypatch.setattr(pr_notify, "STATE_FILE", state)
+    monkeypatch.setattr(pr_notify, "TIME_OF_LAST_RUN_FILE", state)
 
     monkeypatch.setenv("SINCE", "2026-09-08T13:00:00+00:00")
-    assert pr_notify.read_watermark() == datetime(2026, 9, 8, 13, 0, tzinfo=UTC)
+    assert pr_notify.read_time_of_last_run() == datetime(2026, 9, 8, 13, 0, tzinfo=UTC)
 
     monkeypatch.setenv("SINCE", "")
-    assert pr_notify.read_watermark() == datetime(2026, 9, 8, 14, 17, 21, tzinfo=UTC)
+    assert pr_notify.read_time_of_last_run() == datetime(2026, 9, 8, 14, 17, 21, tzinfo=UTC)
 
 
-def test_the_search_reaches_back_further_than_the_watermark() -> None:
-    # A pull request indexed late must stay searchable after its events have aged past the watermark.
+def test_the_search_reaches_back_further_than_the_last_run_time() -> None:
+    # A pull request indexed late must stay searchable after its events have aged past the last-run time.
     assert "updated:>2026-09-08T10:50:00Z" in build_search_query(SINCE)
 
 
