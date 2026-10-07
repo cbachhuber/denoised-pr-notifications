@@ -29,7 +29,7 @@ if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
     exit 1
 fi
 
-TIME_OF_LAST_RUN_FILE="${TIME_OF_LAST_RUN_FILE:-${STATE_FILE:-$STATE_DIR/time_of_last_run}}"
+TIME_OF_LAST_RUN_FILE="${TIME_OF_LAST_RUN_FILE:-$STATE_DIR/time_of_last_run}"
 export TIME_OF_LAST_RUN_FILE
 if [ -z "${GH_TOKEN:-}" ]; then
     if [ -n "${GH_HOST:-}" ]; then

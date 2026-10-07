@@ -1,8 +1,3 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.11"
-# dependencies = []
-# ///
 """Push activity on pull requests I'm involved in to a Microsoft Teams chat.
 
 Participation is derived from GitHub's ``involves:`` search predicate (author, commenter,
@@ -14,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -275,30 +271,31 @@ def alert(webhook_url: str, message: str) -> None:
     stamp.touch()
 
 
-def main() -> None:
+def main() -> int:
     token = os.environ["GH_TOKEN"]
     webhook_url = os.environ["TEAMS_WEBHOOK_URL"]
 
     run_started_at = datetime.now(UTC)
-    since = read_time_of_last_run()
+    time_of_last_run = read_time_of_last_run()
     try:
-        me, pull_requests = search_pull_requests(token, since)
+        me, pull_requests = search_pull_requests(token, time_of_last_run)
     except RateLimited as limited:
         # Leaving the last-run time alone means the next successful run covers this gap.
         print(f"skipped: {limited}")
-        return
+        return 0
+
     except urllib.error.HTTPError as error:
         # A dead token would otherwise fail silently in a repository nobody opens.
         if error.code in (401, 403):
             alert(webhook_url, f"GitHub rejected the token ({error.code}).")
-        raise
+        return 1
 
     sent: list[int] = []
     seen = read_seen(run_started_at)
     pending = [
         (pull_request, event)
         for pull_request in pull_requests
-        for event in collect_events(pull_request, since - SEARCH_LOOKBACK, me)
+        for event in collect_events(pull_request, time_of_last_run - SEARCH_LOOKBACK, me)
         if event["url"] not in seen
     ]
     for index, (pull_request, event) in enumerate(sorted(pending, key=lambda pair: pair[1]["at"])):
@@ -314,10 +311,11 @@ def main() -> None:
     write_seen(seen)
     write_time_of_last_run(run_started_at)
     print(
-        f"since={since.isoformat()} pull_requests={len(pull_requests)} "
+        f"since={time_of_last_run.isoformat()} pull_requests={len(pull_requests)} "
         f"notifications={len(sent)} webhook_status={sorted(set(sent))}"
     )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
