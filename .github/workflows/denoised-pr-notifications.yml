@@ -39,6 +39,8 @@ jobs:
           GH_TOKEN: ${{ secrets.PR_NOTIFY_TOKEN }}
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
           SINCE: ${{ inputs.since }}
+          # Must sit under the cached .state path, or every run cold-starts and re-posts the last hour.
+          TIME_OF_LAST_RUN_FILE: .state/time_of_last_run
 
       - name: Save last-run time
         if: always()
