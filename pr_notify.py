@@ -275,10 +275,10 @@ def main() -> int:
     token = os.environ["GH_TOKEN"]
     webhook_url = os.environ["TEAMS_WEBHOOK_URL"]
 
-    run_started_at = datetime.now(UTC)
-    time_of_last_run = read_time_of_last_run()
+    run_starttime = datetime.now(UTC)
+    previous_run_starttime = read_time_of_last_run()
     try:
-        me, pull_requests = search_pull_requests(token, time_of_last_run)
+        me, pull_requests = search_pull_requests(token, previous_run_starttime)
     except RateLimited as limited:
         # Leaving the last-run time alone means the next successful run covers this gap.
         print(f"skipped: {limited}")
@@ -291,11 +291,11 @@ def main() -> int:
         return 1
 
     sent: list[int] = []
-    seen = read_seen(run_started_at)
+    seen = read_seen(run_starttime)
     pending = [
         (pull_request, event)
         for pull_request in pull_requests
-        for event in collect_events(pull_request, time_of_last_run - SEARCH_LOOKBACK, me)
+        for event in collect_events(pull_request, previous_run_starttime - SEARCH_LOOKBACK, me)
         if event["url"] not in seen
     ]
     for index, (pull_request, event) in enumerate(sorted(pending, key=lambda pair: pair[1]["at"])):
@@ -303,15 +303,15 @@ def main() -> int:
             time.sleep(POST_SPACING)
         # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
         status, body, _ = post_json(webhook_url, build_card(pull_request, event), {})
-        seen[event["url"]] = run_started_at
+        seen[event["url"]] = run_starttime
         sent.append(status)
         if body.strip():
             print(f"webhook replied {status}: {body[:200]!r}")
 
     write_seen(seen)
-    write_time_of_last_run(run_started_at)
+    write_time_of_last_run(run_starttime)
     print(
-        f"since={time_of_last_run.isoformat()} pull_requests={len(pull_requests)} "
+        f"since={previous_run_starttime.isoformat()} pull_requests={len(pull_requests)} "
         f"notifications={len(sent)} webhook_status={sorted(set(sent))}"
     )
     return 0
