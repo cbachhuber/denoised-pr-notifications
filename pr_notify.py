@@ -144,18 +144,18 @@ def collect_events(
     pull request got approved or merged is not my business, even if I reviewed it.
     """
 
-    def worth_reporting(login: str) -> bool:
+    def is_worth_reporting(login: str) -> bool:
         return login != me and login not in config.IGNORED_AUTHORS
 
     def is_new(entry: dict[str, Any]) -> bool:
-        return datetime.fromisoformat(entry["createdAt"]) > since and worth_reporting(
-            login_of(entry.get("author"))
-        )
+        return datetime.fromisoformat(
+            entry["createdAt"]
+        ) > since and is_worth_reporting(login_of(entry.get("author")))
 
-    def addressed_to_me(entry: dict[str, Any]) -> bool:
+    def is_addressed_to_me(entry: dict[str, Any]) -> bool:
         return f"@{me}" in (entry["body"] or "")
 
-    mine = login_of(pull_request["author"]) == me
+    is_mine = login_of(pull_request["author"]) == me
 
     def joined_at(entries: list[dict[str, Any]]) -> datetime | None:
         spoke = [
@@ -167,11 +167,11 @@ def collect_events(
 
     def follows_me(entry: dict[str, Any], joined: datetime | None) -> bool:
         """Replies older than my arrival belong to a conversation that was never mine."""
-        if mine:
+        if is_mine:
             return True
         if joined and datetime.fromisoformat(entry["createdAt"]) > joined:
             return True
-        return addressed_to_me(entry)
+        return is_addressed_to_me(entry)
 
     conversation = pull_request["comments"]["nodes"]
     events: list[dict[str, str]] = []
@@ -183,7 +183,7 @@ def collect_events(
                 {
                     "kind": "Comment",
                     "actor": login_of(comment["author"]),
-                    **_body(comment),
+                    **_create_body(comment),
                 }
             )
 
@@ -196,11 +196,11 @@ def collect_events(
                     {
                         "kind": "Review comment",
                         "actor": login_of(comment["author"]),
-                        **_body(comment),
+                        **_create_body(comment),
                     }
                 )
 
-    if not mine:
+    if not is_mine:
         return events
 
     for review in pull_request["reviews"]["nodes"]:
@@ -213,7 +213,11 @@ def collect_events(
         if review["body"] or review["state"] != "COMMENTED":
             kind = f"Review: {review['state'].replace('_', ' ').title()}"
             events.append(
-                {"kind": kind, "actor": login_of(review["author"]), **_body(review)}
+                {
+                    "kind": kind,
+                    "actor": login_of(review["author"]),
+                    **_create_body(review),
+                }
             )
 
     merged_at = pull_request["mergedAt"]
@@ -232,7 +236,7 @@ def collect_events(
     return sorted(events, key=lambda event: event["at"])
 
 
-def _body(entry: dict[str, Any]) -> dict[str, str]:
+def _create_body(entry: dict[str, Any]) -> dict[str, str]:
     body = (entry["body"] or "").strip()
     preview = body[: config.BODY_PREVIEW_CHARS] + (
         "…" if len(body) > config.BODY_PREVIEW_CHARS else ""
