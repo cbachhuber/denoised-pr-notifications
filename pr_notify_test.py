@@ -235,13 +235,14 @@ def test_a_replay_window_overrides_the_last_run_time(
 ) -> None:
     state = tmp_path / "time_of_last_run"
     state.write_text("2026-09-08T14:17:21+00:00")
-    monkeypatch.setattr(pr_notify, "TIME_OF_LAST_RUN_FILE", state)
 
     monkeypatch.setenv("SINCE", "2026-09-08T13:00:00+00:00")
-    assert pr_notify.read_time_of_last_run() == datetime(2026, 9, 8, 13, 0, tzinfo=UTC)
+    assert pr_notify.read_time_of_last_run(state) == datetime(
+        2026, 9, 8, 13, 0, tzinfo=UTC
+    )
 
     monkeypatch.setenv("SINCE", "")
-    assert pr_notify.read_time_of_last_run() == datetime(
+    assert pr_notify.read_time_of_last_run(state) == datetime(
         2026, 9, 8, 14, 17, 21, tzinfo=UTC
     )
 
@@ -287,19 +288,18 @@ def test_other_graphql_errors_still_fail_loudly(
     assert not isinstance(caught.value, pr_notify.RateLimited)
 
 
-def test_remembers_what_it_sent_and_forgets_it_once_it_ages_out(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
-) -> None:
-    monkeypatch.setattr(pr_notify, "SEEN_FILE", tmp_path / "seen")
+def test_remembers_what_it_sent_and_forgets_it_once_it_ages_out(tmp_path: Any) -> None:
     now = datetime(2026, 9, 14, 14, 0, tzinfo=UTC)
+    seen_file = tmp_path / "seen"
     pr_notify.write_seen(
         {
             "https://ghe/fresh": now - timedelta(minutes=5),
             "https://ghe/stale": now - timedelta(hours=3),
-        }
+        },
+        seen_file,
     )
 
-    assert set(pr_notify.read_seen(now)) == {"https://ghe/fresh"}
+    assert set(pr_notify.read_seen(now, seen_file)) == {"https://ghe/fresh"}
 
 
 @pytest.mark.parametrize(

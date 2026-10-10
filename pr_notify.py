@@ -14,22 +14,10 @@ import time
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from config import (
-    ALERT_INTERVAL,
-    BODY_PREVIEW_CHARS,
-    COLD_START_LOOKBACK,
-    GRAPHQL_URL,
-    IGNORED_AUTHORS,
-    IGNORED_REVIEW_AUTHORS,
-    POST_SPACING,
-    SEARCH_LOOKBACK,
-    SEEN_FILE,
-    SEEN_RETENTION,
-    TIME_OF_LAST_RUN_FILE,
-    TOKEN_SETTINGS_URL,
-)
+from config import config
 
 QUERY = """
 query($q: String!) {
@@ -77,35 +65,35 @@ def post_json(
         return response.status, response.read(), response.headers
 
 
-def read_time_of_last_run() -> datetime:
+def read_time_of_last_run(time_of_last_run_file: Path) -> datetime:
     if override := os.environ.get("SINCE", "").strip():
         return datetime.fromisoformat(override)
-    if TIME_OF_LAST_RUN_FILE.exists():
-        return datetime.fromisoformat(TIME_OF_LAST_RUN_FILE.read_text().strip())
-    return datetime.now(UTC) - COLD_START_LOOKBACK
+    if time_of_last_run_file.exists():
+        return datetime.fromisoformat(time_of_last_run_file.read_text().strip())
+    return datetime.now(UTC) - config.COLD_START_LOOKBACK
 
 
-def write_time_of_last_run(value: datetime) -> None:
-    TIME_OF_LAST_RUN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TIME_OF_LAST_RUN_FILE.write_text(value.isoformat())
+def write_time_of_last_run(value: datetime, time_of_last_run_file: Path) -> None:
+    time_of_last_run_file.parent.mkdir(parents=True, exist_ok=True)
+    time_of_last_run_file.write_text(value.isoformat())
 
 
-def read_seen(now: datetime) -> dict[str, datetime]:
+def read_seen(now: datetime, seen_file: Path) -> dict[str, datetime]:
     """Events already notified, so an overlapping window delivers each one exactly once."""
-    if not SEEN_FILE.exists():
+    if not seen_file.exists():
         return {}
-    cutoff = now - SEEN_RETENTION
+    cutoff = now - config.SEEN_RETENTION
     seen = {}
-    for line in SEEN_FILE.read_text().splitlines():
+    for line in seen_file.read_text().splitlines():
         stamp, _, url = line.partition("\t")
         if url and datetime.fromisoformat(stamp) > cutoff:
             seen[url] = datetime.fromisoformat(stamp)
     return seen
 
 
-def write_seen(seen: dict[str, datetime]) -> None:
-    SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SEEN_FILE.write_text(
+def write_seen(seen: dict[str, datetime], seen_file: Path) -> None:
+    seen_file.parent.mkdir(parents=True, exist_ok=True)
+    seen_file.write_text(
         "".join(f"{stamp.isoformat()}\t{url}\n" for url, stamp in seen.items())
     )
 
@@ -113,7 +101,9 @@ def write_seen(seen: dict[str, datetime]) -> None:
 def build_search_query(since: datetime) -> str:
     # involves: is author OR commenter OR assignee OR mentions, and deliberately not review-requested,
     # which is what keeps CODEOWNERS team requests out of the feed.
-    stamp = (since - SEARCH_LOOKBACK).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = (
+        (since - config.SEARCH_LOOKBACK).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
     return f"is:pr involves:@me updated:>{stamp} sort:updated-desc"
 
 
@@ -125,7 +115,7 @@ def search_pull_requests(
     token: str, since: datetime
 ) -> tuple[str, list[dict[str, Any]]]:
     _, raw, headers = post_json(
-        GRAPHQL_URL,
+        config.GRAPHQL_URL,
         {"query": QUERY, "variables": {"q": build_search_query(since)}},
         {"Authorization": f"Bearer {token}"},
     )
@@ -155,7 +145,7 @@ def collect_events(
     """
 
     def worth_reporting(login: str) -> bool:
-        return login != me and login not in IGNORED_AUTHORS
+        return login != me and login not in config.IGNORED_AUTHORS
 
     def is_new(entry: dict[str, Any]) -> bool:
         return datetime.fromisoformat(entry["createdAt"]) > since and worth_reporting(
@@ -215,7 +205,10 @@ def collect_events(
 
     for review in pull_request["reviews"]["nodes"]:
         # A COMMENTED review with no body is just the envelope around inline comments.
-        if not is_new(review) or login_of(review["author"]) in IGNORED_REVIEW_AUTHORS:
+        if (
+            not is_new(review)
+            or login_of(review["author"]) in config.IGNORED_REVIEW_AUTHORS
+        ):
             continue
         if review["body"] or review["state"] != "COMMENTED":
             kind = f"Review: {review['state'].replace('_', ' ').title()}"
@@ -241,8 +234,8 @@ def collect_events(
 
 def _body(entry: dict[str, Any]) -> dict[str, str]:
     body = (entry["body"] or "").strip()
-    preview = body[:BODY_PREVIEW_CHARS] + (
-        "…" if len(body) > BODY_PREVIEW_CHARS else ""
+    preview = body[: config.BODY_PREVIEW_CHARS] + (
+        "…" if len(body) > config.BODY_PREVIEW_CHARS else ""
     )
     return {"at": entry["createdAt"], "url": entry["url"], "preview": preview}
 
@@ -302,17 +295,23 @@ def build_alert_card(message: str) -> dict[str, Any]:
     ]
     return wrap_card(
         body,
-        [{"type": "Action.OpenUrl", "title": "Renew token", "url": TOKEN_SETTINGS_URL}],
+        [
+            {
+                "type": "Action.OpenUrl",
+                "title": "Renew token",
+                "url": config.TOKEN_SETTINGS_URL,
+            }
+        ],
     )
 
 
 def alert(webhook_url: str, message: str) -> None:
     """Report a broken notifier, at most once an hour so a minutely schedule cannot spam the channel."""
-    stamp = TIME_OF_LAST_RUN_FILE.with_name("last-alert")
+    stamp = config.TIME_OF_LAST_RUN_FILE.with_name("last-alert")
     if (
         stamp.exists()
         and datetime.now(UTC) - datetime.fromtimestamp(stamp.stat().st_mtime, UTC)
-        < ALERT_INTERVAL
+        < config.ALERT_INTERVAL
     ):
         return
     post_json(webhook_url, build_alert_card(message), {})
@@ -325,7 +324,7 @@ def main() -> int:
     webhook_url = os.environ["TEAMS_WEBHOOK_URL"]
 
     run_starttime = datetime.now(UTC)
-    previous_run_starttime = read_time_of_last_run()
+    previous_run_starttime = read_time_of_last_run(config.TIME_OF_LAST_RUN_FILE)
     try:
         me, pull_requests = search_pull_requests(token, previous_run_starttime)
     except RateLimited as limited:
@@ -340,12 +339,12 @@ def main() -> int:
         return 1
 
     sent: list[int] = []
-    seen = read_seen(run_starttime)
+    seen = read_seen(run_starttime, config.SEEN_FILE)
     pending = [
         (pull_request, event)
         for pull_request in pull_requests
         for event in collect_events(
-            pull_request, previous_run_starttime - SEARCH_LOOKBACK, me
+            pull_request, previous_run_starttime - config.SEARCH_LOOKBACK, me
         )
         if event["url"] not in seen
     ]
@@ -353,7 +352,7 @@ def main() -> int:
         sorted(pending, key=lambda pair: pair[1]["at"])
     ):
         if index:
-            time.sleep(POST_SPACING)
+            time.sleep(config.POST_SPACING)
         # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
         status, body, _ = post_json(webhook_url, build_card(pull_request, event), {})
         seen[event["url"]] = run_starttime
@@ -361,8 +360,8 @@ def main() -> int:
         if body.strip():
             print(f"webhook replied {status}: {body[:200]!r}")
 
-    write_seen(seen)
-    write_time_of_last_run(run_starttime)
+    write_seen(seen, config.SEEN_FILE)
+    write_time_of_last_run(run_starttime, config.TIME_OF_LAST_RUN_FILE)
     print(
         f"since={previous_run_starttime.isoformat()} pull_requests={len(pull_requests)} "
         f"notifications={len(sent)} webhook_status={sorted(set(sent))}"
