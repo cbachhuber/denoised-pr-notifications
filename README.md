@@ -30,7 +30,7 @@ Copilot's *Pull request overview* review summary is suppressed via `IGNORED_REVI
 ## Setup
 
 After setting up [common steps](#common-steps), you can either run this [from your local machine](#running-from-your-local-machine) or [as a github action](#running-from-github-actions).
-Github actions run at most every 5 minutes, are more expensive, and require a dedicated github token. 
+Github actions run at most every 5 minutes, are more expensive, and require a dedicated github token.
 On the other hand, they probably have a higher availability than your local machine.
 
 ### Common steps
@@ -74,7 +74,6 @@ Cron reports failures to nobody, so `run.sh` posts a card when a run exits non-z
 
 1. **Fork this repo**
    Such that you have your own repo, where your secrets and scheduled workflow can live
-
 
 2. **Create a personal access token.**
    GitHub has no API for creating tokens, so this step is browser-only:

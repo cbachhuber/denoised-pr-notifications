@@ -1,5 +1,4 @@
 name: PR activity to Teams
-
 on:
   schedule:
     - cron: "*/15 * * * *"
@@ -9,16 +8,13 @@ on:
         description: "Replay from this UTC timestamp, e.g. 2026-09-08T14:00:00+00:00 (blank uses the last-run time)"
         required: false
         type: string
-
 concurrency:
   group: denoised-pr-notifications
-
 jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-
       # Cache keys are immutable, so each run writes a new one and restore-keys picks the newest.
       - name: Restore last-run time
         uses: actions/cache/restore@v4
@@ -26,13 +22,11 @@ jobs:
           path: .state
           key: time-of-last-run-${{ github.run_id }}
           restore-keys: time-of-last-run-
-
       # Pinned: resolving "latest" calls the github.com API, which a GitHub Enterprise GITHUB_TOKEN cannot authenticate.
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.12.10"
           enable-cache: true
-
       - name: Collect and notify
         run: uv run pr_notify.py
         env:
@@ -41,7 +35,6 @@ jobs:
           SINCE: ${{ inputs.since }}
           # Must sit under the cached .state path, or every run cold-starts and re-posts the last hour.
           TIME_OF_LAST_RUN_FILE: .state/time_of_last_run
-
       - name: Save last-run time
         if: always()
         uses: actions/cache/save@v4

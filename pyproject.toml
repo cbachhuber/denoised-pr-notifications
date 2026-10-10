@@ -1,10 +1,17 @@
+[dependency-groups]
+dev = ["pytest"]
+
 [project]
 name = "denoised-pr-notifications"
 version = "0.1.0"
 requires-python = ">=3.11"
 
-[dependency-groups]
-dev = ["pytest"]
+[tool.rumdl.MD013]
+require-sentence-per-line = true
+reflow = true
+line-length = 10000
+code-blocks = false
+tables = false
 
 [tool.uv]
 package = false

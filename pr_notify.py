@@ -64,7 +64,9 @@ query($q: String!) {
 """
 
 
-def post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> tuple[int, bytes, Any]:
+def post_json(
+    url: str, payload: dict[str, Any], headers: dict[str, str]
+) -> tuple[int, bytes, Any]:
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
@@ -103,7 +105,9 @@ def read_seen(now: datetime) -> dict[str, datetime]:
 
 def write_seen(seen: dict[str, datetime]) -> None:
     SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SEEN_FILE.write_text("".join(f"{stamp.isoformat()}\t{url}\n" for url, stamp in seen.items()))
+    SEEN_FILE.write_text(
+        "".join(f"{stamp.isoformat()}\t{url}\n" for url, stamp in seen.items())
+    )
 
 
 def build_search_query(since: datetime) -> str:
@@ -117,7 +121,9 @@ class RateLimited(RuntimeError):
     """The hourly GraphQL budget is spent. Self-healing, so a run skips rather than fails."""
 
 
-def search_pull_requests(token: str, since: datetime) -> tuple[str, list[dict[str, Any]]]:
+def search_pull_requests(
+    token: str, since: datetime
+) -> tuple[str, list[dict[str, Any]]]:
     _, raw, headers = post_json(
         GRAPHQL_URL,
         {"query": QUERY, "variables": {"q": build_search_query(since)}},
@@ -139,7 +145,9 @@ def login_of(node: dict[str, Any] | None) -> str:
     return (node or {}).get("login") or "ghost"
 
 
-def collect_events(pull_request: dict[str, Any], since: datetime, me: str) -> list[dict[str, str]]:
+def collect_events(
+    pull_request: dict[str, Any], since: datetime, me: str
+) -> list[dict[str, str]]:
     """Return the activity on one pull request that happened after ``since`` and is worth telling me about.
 
     On pull requests I did not author, only threads I am actually in qualify: whether someone else's
@@ -150,7 +158,9 @@ def collect_events(pull_request: dict[str, Any], since: datetime, me: str) -> li
         return login != me and login not in IGNORED_AUTHORS
 
     def is_new(entry: dict[str, Any]) -> bool:
-        return datetime.fromisoformat(entry["createdAt"]) > since and worth_reporting(login_of(entry.get("author")))
+        return datetime.fromisoformat(entry["createdAt"]) > since and worth_reporting(
+            login_of(entry.get("author"))
+        )
 
     def addressed_to_me(entry: dict[str, Any]) -> bool:
         return f"@{me}" in (entry["body"] or "")
@@ -158,7 +168,11 @@ def collect_events(pull_request: dict[str, Any], since: datetime, me: str) -> li
     mine = login_of(pull_request["author"]) == me
 
     def joined_at(entries: list[dict[str, Any]]) -> datetime | None:
-        spoke = [datetime.fromisoformat(e["createdAt"]) for e in entries if login_of(e["author"]) == me]
+        spoke = [
+            datetime.fromisoformat(e["createdAt"])
+            for e in entries
+            if login_of(e["author"]) == me
+        ]
         return min(spoke) if spoke else None
 
     def follows_me(entry: dict[str, Any], joined: datetime | None) -> bool:
@@ -175,14 +189,26 @@ def collect_events(pull_request: dict[str, Any], since: datetime, me: str) -> li
     joined_conversation = joined_at(conversation)
     for comment in conversation:
         if is_new(comment) and follows_me(comment, joined_conversation):
-            events.append({"kind": "Comment", "actor": login_of(comment["author"]), **_body(comment)})
+            events.append(
+                {
+                    "kind": "Comment",
+                    "actor": login_of(comment["author"]),
+                    **_body(comment),
+                }
+            )
 
     for thread in pull_request["reviewThreads"]["nodes"]:
         replies = thread["comments"]["nodes"]
         joined_thread = joined_at(replies)
         for comment in replies:
             if is_new(comment) and follows_me(comment, joined_thread):
-                events.append({"kind": "Review comment", "actor": login_of(comment["author"]), **_body(comment)})
+                events.append(
+                    {
+                        "kind": "Review comment",
+                        "actor": login_of(comment["author"]),
+                        **_body(comment),
+                    }
+                )
 
     if not mine:
         return events
@@ -193,7 +219,9 @@ def collect_events(pull_request: dict[str, Any], since: datetime, me: str) -> li
             continue
         if review["body"] or review["state"] != "COMMENTED":
             kind = f"Review: {review['state'].replace('_', ' ').title()}"
-            events.append({"kind": kind, "actor": login_of(review["author"]), **_body(review)})
+            events.append(
+                {"kind": kind, "actor": login_of(review["author"]), **_body(review)}
+            )
 
     merged_at = pull_request["mergedAt"]
     # The merge queue credits whoever enqueued the pull request, so "merged by me" is still news.
@@ -213,11 +241,15 @@ def collect_events(pull_request: dict[str, Any], since: datetime, me: str) -> li
 
 def _body(entry: dict[str, Any]) -> dict[str, str]:
     body = (entry["body"] or "").strip()
-    preview = body[:BODY_PREVIEW_CHARS] + ("…" if len(body) > BODY_PREVIEW_CHARS else "")
+    preview = body[:BODY_PREVIEW_CHARS] + (
+        "…" if len(body) > BODY_PREVIEW_CHARS else ""
+    )
     return {"at": entry["createdAt"], "url": entry["url"], "preview": preview}
 
 
-def wrap_card(body: list[dict[str, Any]], actions: list[dict[str, Any]]) -> dict[str, Any]:
+def wrap_card(
+    body: list[dict[str, Any]], actions: list[dict[str, Any]]
+) -> dict[str, Any]:
     return {
         "type": "message",
         "attachments": [
@@ -236,7 +268,11 @@ def wrap_card(body: list[dict[str, Any]], actions: list[dict[str, Any]]) -> dict
 
 
 # Verdicts and merges are terse links; actual comment text is worth showing in full.
-REVIEW_VERBS = {"Approved": "approved", "Changes Requested": "requested changes on", "Commented": "commented on"}
+REVIEW_VERBS = {
+    "Approved": "approved",
+    "Changes Requested": "requested changes on",
+    "Commented": "commented on",
+}
 
 
 def format_message(pull_request: dict[str, Any], event: dict[str, str]) -> str:
@@ -255,16 +291,29 @@ def build_card(pull_request: dict[str, Any], event: dict[str, str]) -> dict[str,
 
 def build_alert_card(message: str) -> dict[str, Any]:
     body = [
-        {"type": "TextBlock", "text": "PR notifier is broken", "weight": "Bolder", "size": "Medium", "color": "Attention"},
+        {
+            "type": "TextBlock",
+            "text": "PR notifier is broken",
+            "weight": "Bolder",
+            "size": "Medium",
+            "color": "Attention",
+        },
         {"type": "TextBlock", "text": message, "wrap": True},
     ]
-    return wrap_card(body, [{"type": "Action.OpenUrl", "title": "Renew token", "url": TOKEN_SETTINGS_URL}])
+    return wrap_card(
+        body,
+        [{"type": "Action.OpenUrl", "title": "Renew token", "url": TOKEN_SETTINGS_URL}],
+    )
 
 
 def alert(webhook_url: str, message: str) -> None:
     """Report a broken notifier, at most once an hour so a minutely schedule cannot spam the channel."""
     stamp = TIME_OF_LAST_RUN_FILE.with_name("last-alert")
-    if stamp.exists() and datetime.now(UTC) - datetime.fromtimestamp(stamp.stat().st_mtime, UTC) < ALERT_INTERVAL:
+    if (
+        stamp.exists()
+        and datetime.now(UTC) - datetime.fromtimestamp(stamp.stat().st_mtime, UTC)
+        < ALERT_INTERVAL
+    ):
         return
     post_json(webhook_url, build_alert_card(message), {})
     stamp.parent.mkdir(parents=True, exist_ok=True)
@@ -295,10 +344,14 @@ def main() -> int:
     pending = [
         (pull_request, event)
         for pull_request in pull_requests
-        for event in collect_events(pull_request, previous_run_starttime - SEARCH_LOOKBACK, me)
+        for event in collect_events(
+            pull_request, previous_run_starttime - SEARCH_LOOKBACK, me
+        )
         if event["url"] not in seen
     ]
-    for index, (pull_request, event) in enumerate(sorted(pending, key=lambda pair: pair[1]["at"])):
+    for index, (pull_request, event) in enumerate(
+        sorted(pending, key=lambda pair: pair[1]["at"])
+    ):
         if index:
             time.sleep(POST_SPACING)
         # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.

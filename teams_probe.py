@@ -1,8 +1,3 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.13"
-# dependencies = []
-# ///
 """Probe a Teams Workflows webhook with three payload shapes to isolate flow vs payload faults."""
 
 import json
@@ -11,8 +6,19 @@ import urllib.request
 from getpass import getpass
 
 CARD_BODY = [
-    {"type": "TextBlock", "text": "Probe 1 of 3: full card", "weight": "Bolder", "size": "Medium", "wrap": True},
-    {"type": "TextBlock", "text": "foo/repo #1351 - shape used by the real notifier", "isSubtle": True, "wrap": True},
+    {
+        "type": "TextBlock",
+        "text": "Probe 1 of 3: full card",
+        "weight": "Bolder",
+        "size": "Medium",
+        "wrap": True,
+    },
+    {
+        "type": "TextBlock",
+        "text": "foo/repo #1351 - shape used by the real notifier",
+        "isSubtle": True,
+        "wrap": True,
+    },
 ]
 
 PAYLOADS = {
@@ -27,7 +33,11 @@ PAYLOADS = {
                     "version": "1.4",
                     "body": CARD_BODY,
                     "actions": [
-                        {"type": "Action.OpenUrl", "title": "Open on GitHub", "url": "https://github.com"}
+                        {
+                            "type": "Action.OpenUrl",
+                            "title": "Open on GitHub",
+                            "url": "https://github.com",
+                        }
                     ],
                 },
             }
@@ -42,7 +52,13 @@ PAYLOADS = {
                     "type": "AdaptiveCard",
                     "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     "version": "1.4",
-                    "body": [{"type": "TextBlock", "text": "Probe 2 of 3: bare card", "wrap": True}],
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": "Probe 2 of 3: bare card",
+                            "wrap": True,
+                        }
+                    ],
                 },
             }
         ],
@@ -64,14 +80,20 @@ def main() -> None:
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 body = response.read()[:300].decode(errors="replace").strip()
-                print(f"{label}\n    HTTP {response.status} {response.reason}  body={body or '<empty>'}\n")
+                print(
+                    f"{label}\n    HTTP {response.status} {response.reason}  body={body or '<empty>'}\n"
+                )
         except urllib.error.HTTPError as error:
-            print(f"{label}\n    HTTP {error.code} {error.reason}  body={error.read()[:300]!r}\n")
+            print(
+                f"{label}\n    HTTP {error.code} {error.reason}  body={error.read()[:300]!r}\n"
+            )
         except urllib.error.URLError as error:
             print(f"{label}\n    connection failed: {error.reason}\n")
 
     print("Now check the chat. Which probes appeared?")
-    print("  none      -> the flow is off, failing, or the URL belongs to a different flow")
+    print(
+        "  none      -> the flow is off, failing, or the URL belongs to a different flow"
+    )
     print("  3 only    -> the flow does not handle Adaptive Card payloads")
     print("  2 but not 1 -> the Action.OpenUrl block is being rejected")
     print("  all three -> delivery works; the problem is upstream in the notifier")
