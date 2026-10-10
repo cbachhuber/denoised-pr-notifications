@@ -1,4 +1,4 @@
-name: lint
+name: prek
 on:
   push:
     branches: [main]
