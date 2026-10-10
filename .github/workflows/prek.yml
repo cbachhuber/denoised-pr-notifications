@@ -10,4 +10,21 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Resolve prek home
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Hook repositories, environments, and toolchains live here and are cached between runs.
+          echo "PREK_HOME=${RUNNER_TEMP}/prek-home" >> "${GITHUB_ENV}"
+      - name: Cache prek hook environments
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ${{ env.PREK_HOME }}
+          key: prek-${{ runner.os }}-${{ runner.arch }}-${{ inputs.prek-version }}-${{ hashFiles('**/.pre-commit-config.yaml', '**/prek.toml') }}
+          restore-keys: |
+            prek-${{ runner.os }}-${{ runner.arch }}-${{ inputs.prek-version }}-
       - run: uvx prek run --all-files --show-diff-on-failure
