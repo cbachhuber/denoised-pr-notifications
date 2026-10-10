@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
 import pr_notify
-from pr_notify import build_search_query, collect_events
+from pr_notify import collect_events
 
 ME = "chris"
 SINCE = datetime(2026, 9, 8, 11, 0, tzinfo=UTC)
@@ -127,11 +126,6 @@ def test_survives_a_deleted_account() -> None:
     assert event["actor"] == "ghost"
 
 
-def test_the_search_excludes_review_requests() -> None:
-    assert "involves:@me" in build_search_query(SINCE)
-    assert "review-requested" not in build_search_query(SINCE)
-
-
 def someone_elses_pull_request(**overrides: Any) -> dict[str, Any]:
     return pull_request(author={"login": "colleague"}, **overrides)
 
@@ -247,11 +241,6 @@ def test_a_replay_window_overrides_the_last_run_time(
     )
 
 
-def test_the_search_reaches_back_further_than_the_last_run_time() -> None:
-    # A pull request indexed late must stay searchable after its events have aged past the last-run time.
-    assert "updated:>2026-09-08T10:50:00Z" in build_search_query(SINCE)
-
-
 def test_reports_events_in_the_order_they_happened_not_by_category() -> None:
     # Cards race each other through Power Automate, so they must at least leave here in order.
     out_of_order = pull_request(
@@ -259,33 +248,6 @@ def test_reports_events_in_the_order_they_happened_not_by_category() -> None:
         reviews={"nodes": [review(state="APPROVED", created_at=AFTER)]},
     )
     assert kinds(out_of_order) == ["Review: Approved", "Comment"]
-
-
-def graphql_replying(payload: dict[str, Any]) -> Any:
-    return lambda *_args, **_kwargs: (200, json.dumps(payload).encode(), {})
-
-
-def test_a_spent_rate_limit_is_distinguishable_from_a_real_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The budget refills hourly, so a run should skip rather than wake anyone up.
-    spent = [{"type": "RATE_LIMIT", "message": "API rate limit already exceeded"}]
-    monkeypatch.setattr(pr_notify, "post_json", graphql_replying({"errors": spent}))
-
-    with pytest.raises(pr_notify.RateLimited):
-        pr_notify.fetch_viewer_and_updated_pull_requests("token", SINCE)
-
-
-def test_other_graphql_errors_still_fail_loudly(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        pr_notify, "post_json", graphql_replying({"errors": [{"message": "boom"}]})
-    )
-
-    with pytest.raises(RuntimeError) as caught:
-        pr_notify.fetch_viewer_and_updated_pull_requests("token", SINCE)
-    assert not isinstance(caught.value, pr_notify.RateLimited)
 
 
 def test_remembers_what_it_sent_and_forgets_it_once_it_ages_out(tmp_path: Any) -> None:
@@ -302,19 +264,10 @@ def test_remembers_what_it_sent_and_forgets_it_once_it_ages_out(tmp_path: Any) -
     assert set(pr_notify.read_seen(now, seen_file)) == {"https://ghe/fresh"}
 
 
-@pytest.mark.parametrize(
-    ("case", "moment"),
-    [
-        ("already UTC", datetime(2026, 9, 8, 11, 0, tzinfo=UTC)),
-        (
-            "ahead of UTC",
-            datetime(2026, 9, 8, 13, 0, tzinfo=timezone(timedelta(hours=2))),
-        ),
-        (
-            "behind UTC",
-            datetime(2026, 9, 8, 7, 0, tzinfo=timezone(timedelta(hours=-4))),
-        ),
-    ],
-)
-def test_the_search_timestamp_is_always_utc(case: str, moment: datetime) -> None:
-    assert "updated:>2026-09-08T10:50:00Z" in build_search_query(moment), case
+def test_writes_last_run_time_as_iso_format(tmp_path: Any) -> None:
+    value = datetime(2026, 9, 14, 14, 0, tzinfo=UTC)
+    state = tmp_path / "last-run"
+
+    pr_notify.write_time_of_last_run(value, state)
+
+    assert state.read_text() == value.isoformat()

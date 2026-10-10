@@ -7,62 +7,17 @@ assignee, mentions) rather than from notification ``reason``, which is sticky at
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import time
 import urllib.error
-import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import github_api
+import teams
 from config import config
-
-QUERY = """
-query($q: String!) {
-  viewer { login }
-  search(query: $q, type: ISSUE, first: 50) {
-    nodes {
-      ... on PullRequest {
-        number
-        title
-        url
-        mergedAt
-        mergedBy { login }
-        author { login }
-        repository { nameWithOwner }
-        comments(last: 30) {
-          nodes { createdAt url body author { login } }
-        }
-        reviews(last: 20) {
-          nodes { createdAt url body state author { login } }
-        }
-        reviewThreads(last: 30) {
-          nodes {
-            comments(last: 20) {
-              nodes { createdAt url body author { login } }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
-
-def post_json(
-    url: str, payload: dict[str, Any], headers: dict[str, str]
-) -> tuple[int, bytes, Any]:
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json", **headers},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return response.status, response.read(), response.headers
 
 
 def get_time_of_last_run(time_of_last_run_file: Path) -> datetime:
@@ -96,39 +51,6 @@ def write_seen(seen: dict[str, datetime], seen_file: Path) -> None:
     seen_file.write_text(
         "".join(f"{stamp.isoformat()}\t{url}\n" for url, stamp in seen.items())
     )
-
-
-def build_search_query(since: datetime) -> str:
-    # involves: is author OR commenter OR assignee OR mentions, and deliberately not review-requested,
-    # which is what keeps CODEOWNERS team requests out of the feed.
-    stamp = (
-        (since - config.SEARCH_LOOKBACK).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    )
-    return f"is:pr involves:@me updated:>{stamp} sort:updated-desc"
-
-
-class RateLimited(RuntimeError):
-    """The hourly GraphQL budget is spent. Self-healing, so a run skips rather than fails."""
-
-
-def fetch_viewer_and_updated_pull_requests(
-    token: str, since: datetime
-) -> tuple[str, list[dict[str, Any]]]:
-    _, raw, headers = post_json(
-        config.GRAPHQL_URL,
-        {"query": QUERY, "variables": {"q": build_search_query(since)}},
-        {"Authorization": f"Bearer {token}"},
-    )
-    # Only present for tokens that actually expire; logged verbatim rather than parsed.
-    if expiry := headers.get("github-authentication-token-expiration"):
-        print(f"token expires: {expiry}")
-    response = json.loads(raw)
-    if errors := response.get("errors"):
-        if any(error.get("type") == "RATE_LIMIT" for error in errors):
-            raise RateLimited(errors[0].get("message", "rate limited"))
-        raise RuntimeError(f"GraphQL query failed: {errors}")
-    data = response["data"]
-    return data["viewer"]["login"], [node for node in data["search"]["nodes"] if node]
 
 
 def login_of(node: dict[str, Any] | None) -> str:
@@ -244,85 +166,6 @@ def _create_body(entry: dict[str, Any]) -> dict[str, str]:
     return {"at": entry["createdAt"], "url": entry["url"], "preview": preview}
 
 
-def wrap_card(
-    body: list[dict[str, Any]], actions: list[dict[str, Any]]
-) -> dict[str, Any]:
-    return {
-        "type": "message",
-        "attachments": [
-            {
-                "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                    "type": "AdaptiveCard",
-                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                    "version": "1.4",
-                    "body": body,
-                    "actions": actions,
-                },
-            }
-        ],
-    }
-
-
-# Verdicts and merges are terse links; actual comment text is worth showing in full.
-REVIEW_VERBS = {
-    "Approved": "approved",
-    "Changes Requested": "requested changes on",
-    "Commented": "commented on",
-}
-
-
-def format_message(pull_request: dict[str, Any], event: dict[str, str]) -> str:
-    actor, url, title = event["actor"], event["url"], pull_request["title"]
-    if event["kind"] == "Merged":
-        return f"[{actor} merged {title}]({url})"
-    if verb := REVIEW_VERBS.get(event["kind"].removeprefix("Review: ")):
-        return f"[{actor} {verb} {title}]({url})"
-    return f"{actor} [commented on {title}]({url})\n{event['preview']}"
-
-
-def build_card(pull_request: dict[str, Any], event: dict[str, str]) -> dict[str, Any]:
-    text = format_message(pull_request, event)
-    return wrap_card([{"type": "TextBlock", "text": text, "wrap": True}], [])
-
-
-def build_alert_card(message: str) -> dict[str, Any]:
-    body = [
-        {
-            "type": "TextBlock",
-            "text": "PR notifier is broken",
-            "weight": "Bolder",
-            "size": "Medium",
-            "color": "Attention",
-        },
-        {"type": "TextBlock", "text": message, "wrap": True},
-    ]
-    return wrap_card(
-        body,
-        [
-            {
-                "type": "Action.OpenUrl",
-                "title": "Renew token",
-                "url": config.TOKEN_SETTINGS_URL,
-            }
-        ],
-    )
-
-
-def send_alert(webhook_url: str, message: str) -> None:
-    """Report a broken notifier, at most once an hour so a minutely schedule cannot spam the channel."""
-    stamp = config.TIME_OF_LAST_RUN_FILE.with_name("last-alert")
-    if (
-        stamp.exists()
-        and datetime.now(UTC) - datetime.fromtimestamp(stamp.stat().st_mtime, UTC)
-        < config.ALERT_INTERVAL
-    ):
-        return
-    post_json(webhook_url, build_alert_card(message), {})
-    stamp.parent.mkdir(parents=True, exist_ok=True)
-    stamp.touch()
-
-
 def main() -> int:
     token = os.environ["GH_TOKEN"]
     webhook_url = os.environ["TEAMS_WEBHOOK_URL"]
@@ -330,10 +173,10 @@ def main() -> int:
     run_starttime = datetime.now(UTC)
     previous_run_starttime = get_time_of_last_run(config.TIME_OF_LAST_RUN_FILE)
     try:
-        me, pull_requests = fetch_viewer_and_updated_pull_requests(
+        me, pull_requests = github_api.fetch_viewer_and_updated_pull_requests(
             token, since=previous_run_starttime
         )
-    except RateLimited as limited:
+    except github_api.RateLimited as limited:
         # Leaving the last-run time alone means the next successful run will cover this gap.
         print(f"skipped: {limited}")
         return 0
@@ -341,7 +184,7 @@ def main() -> int:
     except urllib.error.HTTPError as error:
         # A dead token would otherwise fail silently in a repository nobody opens.
         if error.code in (401, 403):
-            send_alert(webhook_url, f"GitHub rejected the token ({error.code}).")
+            teams.send_alert(webhook_url, f"GitHub rejected the token ({error.code}).")
         return 1
 
     sent: list[int] = []
@@ -360,7 +203,9 @@ def main() -> int:
         if index:
             time.sleep(config.POST_SPACING)
         # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
-        status, body, _ = post_json(webhook_url, build_card(pull_request, event), {})
+        status, body, _ = teams.post_card(
+            webhook_url, teams.build_card(pull_request, event)
+        )
         seen[event["url"]] = run_starttime
         sent.append(status)
         if body.strip():
