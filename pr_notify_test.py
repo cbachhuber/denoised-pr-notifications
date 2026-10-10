@@ -237,12 +237,12 @@ def test_a_replay_window_overrides_the_last_run_time(
     state.write_text("2026-09-08T14:17:21+00:00")
 
     monkeypatch.setenv("SINCE", "2026-09-08T13:00:00+00:00")
-    assert pr_notify.read_time_of_last_run(state) == datetime(
+    assert pr_notify.get_time_of_last_run(state) == datetime(
         2026, 9, 8, 13, 0, tzinfo=UTC
     )
 
     monkeypatch.setenv("SINCE", "")
-    assert pr_notify.read_time_of_last_run(state) == datetime(
+    assert pr_notify.get_time_of_last_run(state) == datetime(
         2026, 9, 8, 14, 17, 21, tzinfo=UTC
     )
 
@@ -273,7 +273,7 @@ def test_a_spent_rate_limit_is_distinguishable_from_a_real_failure(
     monkeypatch.setattr(pr_notify, "post_json", graphql_replying({"errors": spent}))
 
     with pytest.raises(pr_notify.RateLimited):
-        pr_notify.search_pull_requests("token", SINCE)
+        pr_notify.fetch_viewer_and_updated_pull_requests("token", SINCE)
 
 
 def test_other_graphql_errors_still_fail_loudly(
@@ -284,7 +284,7 @@ def test_other_graphql_errors_still_fail_loudly(
     )
 
     with pytest.raises(RuntimeError) as caught:
-        pr_notify.search_pull_requests("token", SINCE)
+        pr_notify.fetch_viewer_and_updated_pull_requests("token", SINCE)
     assert not isinstance(caught.value, pr_notify.RateLimited)
 
 

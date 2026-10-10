@@ -65,7 +65,7 @@ def post_json(
         return response.status, response.read(), response.headers
 
 
-def read_time_of_last_run(time_of_last_run_file: Path) -> datetime:
+def get_time_of_last_run(time_of_last_run_file: Path) -> datetime:
     if override := os.environ.get("SINCE", "").strip():
         return datetime.fromisoformat(override)
     if time_of_last_run_file.exists():
@@ -111,7 +111,7 @@ class RateLimited(RuntimeError):
     """The hourly GraphQL budget is spent. Self-healing, so a run skips rather than fails."""
 
 
-def search_pull_requests(
+def fetch_viewer_and_updated_pull_requests(
     token: str, since: datetime
 ) -> tuple[str, list[dict[str, Any]]]:
     _, raw, headers = post_json(
@@ -309,7 +309,7 @@ def build_alert_card(message: str) -> dict[str, Any]:
     )
 
 
-def alert(webhook_url: str, message: str) -> None:
+def send_alert(webhook_url: str, message: str) -> None:
     """Report a broken notifier, at most once an hour so a minutely schedule cannot spam the channel."""
     stamp = config.TIME_OF_LAST_RUN_FILE.with_name("last-alert")
     if (
@@ -328,18 +328,20 @@ def main() -> int:
     webhook_url = os.environ["TEAMS_WEBHOOK_URL"]
 
     run_starttime = datetime.now(UTC)
-    previous_run_starttime = read_time_of_last_run(config.TIME_OF_LAST_RUN_FILE)
+    previous_run_starttime = get_time_of_last_run(config.TIME_OF_LAST_RUN_FILE)
     try:
-        me, pull_requests = search_pull_requests(token, previous_run_starttime)
+        me, pull_requests = fetch_viewer_and_updated_pull_requests(
+            token, since=previous_run_starttime
+        )
     except RateLimited as limited:
-        # Leaving the last-run time alone means the next successful run covers this gap.
+        # Leaving the last-run time alone means the next successful run will cover this gap.
         print(f"skipped: {limited}")
         return 0
 
     except urllib.error.HTTPError as error:
         # A dead token would otherwise fail silently in a repository nobody opens.
         if error.code in (401, 403):
-            alert(webhook_url, f"GitHub rejected the token ({error.code}).")
+            send_alert(webhook_url, f"GitHub rejected the token ({error.code}).")
         return 1
 
     sent: list[int] = []
