@@ -7,7 +7,7 @@ import urllib.request
 from datetime import UTC, datetime
 from typing import Any
 
-from config import config
+from .config import config
 
 
 def post_card(webhook_url: str, card: dict[str, Any]) -> tuple[int, bytes, Any]:

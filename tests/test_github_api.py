@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-import github_api
-from github_api import build_search_query
+from denoised_pr_notifications import github_api
+from denoised_pr_notifications.github_api import build_search_query
 
 SINCE = datetime(2026, 9, 8, 11, 0, tzinfo=UTC)
 

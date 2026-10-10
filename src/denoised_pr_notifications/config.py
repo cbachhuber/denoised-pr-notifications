@@ -1,4 +1,4 @@
-"""Settings for pr_notify.py."""
+"""Settings for the PR notifier."""
 
 from __future__ import annotations
 

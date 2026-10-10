@@ -2,7 +2,7 @@
 
 Install uv with `curl -LsSf https://astral.sh/uv/install.sh | sh`, execute unit tests with `uv run pytest`.
 
-This repository's lint rules live in [.pre-commit-config.yaml](/.pre-commit-config.yaml) and are executed with [prek](https://prek.j178.dev/), a fast drop-in replacement for `pre-commit`.
+This repository's lint rules live in [.pre-commit-config.yaml](.pre-commit-config.yaml) and are executed with [prek](https://prek.j178.dev/), a fast drop-in replacement for `pre-commit`.
 You can locally run the same checks that CI runs.
 
 Install prek with any method from the [prek installation guide](https://prek.j178.dev/installation/), for example:

@@ -45,13 +45,13 @@ if [ -n "${GH_HOST:-}" ]; then
     export GITHUB_GRAPHQL_URL="${GITHUB_GRAPHQL_URL:-https://api.$GH_HOST/graphql}"
 fi
 
-if uv run "$BASE_DIR/pr_notify.py" >>"$LOG" 2>&1; then
+if uv run --project "$BASE_DIR" pr-notify >>"$LOG" 2>&1; then
     exit 0
 fi
 
 echo "$(date -Is) run failed" >>"$LOG"
 
-# pr_notify.py reports its own auth failures; this covers the cases that stop it starting at all.
+# The pr-notify command reports auth failures; this covers the cases that stop it starting at all.
 if [ -n "${TEAMS_WEBHOOK_URL:-}" ] && [ -z "$(find "$ALERT_STAMP" -mmin -60 2>/dev/null)" ]; then
     curl -sS -X POST "$TEAMS_WEBHOOK_URL" -H 'Content-Type: application/json' -d '{
       "type": "message",

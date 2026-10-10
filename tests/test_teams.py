@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-import teams
+from denoised_pr_notifications import teams
 
 PULL_REQUEST = {"title": "Make the change"}
 

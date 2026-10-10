@@ -15,9 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import github_api
-import teams
-from config import config
+from . import github_api, teams
+from .config import config
 
 
 def get_time_of_last_run(time_of_last_run_file: Path) -> datetime:

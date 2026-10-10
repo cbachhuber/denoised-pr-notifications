@@ -68,7 +68,7 @@ chmod 600 ~/.config/pr-notify/env
 crontab -e   # then append  `* * * * * $HOME/denoised-pr-notifications/run.sh` to run once per minute
 ```
 
-Cron reports failures to nobody, so `run.sh` posts a card when a run exits non-zero, and `pr_notify.py` throttles its own alerts to one an hour.
+Cron reports failures to nobody, so `run.sh` posts a card when a run exits non-zero, and the `pr-notify` command throttles its own alerts to one an hour.
 
 ### Running from GitHub actions
 

@@ -7,7 +7,7 @@ import urllib.request
 from datetime import UTC, datetime
 from typing import Any
 
-from config import config
+from .config import config
 
 QUERY = """
 query($q: String!) {

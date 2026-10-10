@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [dependency-groups]
 dev = ["pytest"]
 
@@ -6,12 +10,15 @@ name = "denoised-pr-notifications"
 version = "0.1.0"
 requires-python = ">=3.11"
 
+[project.scripts]
+pr-notify = "denoised_pr_notifications.pr_notify:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/denoised_pr_notifications"]
+
 [tool.rumdl.MD013]
 require-sentence-per-line = true
 reflow = true
 line-length = 10000
 code-blocks = false
 tables = false
-
-[tool.uv]
-package = false

@@ -28,7 +28,7 @@ jobs:
           version: "0.12.10"
           enable-cache: true
       - name: Collect and notify
-        run: uv run pr_notify.py
+        run: uv run pr-notify
         env:
           GH_TOKEN: ${{ secrets.PR_NOTIFY_TOKEN }}
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}

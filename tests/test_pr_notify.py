@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-import pr_notify
-from pr_notify import collect_events
+from denoised_pr_notifications import pr_notify
+from denoised_pr_notifications.pr_notify import collect_events
 
 ME = "chris"
 SINCE = datetime(2026, 9, 8, 11, 0, tzinfo=UTC)
