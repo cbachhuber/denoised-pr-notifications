@@ -252,16 +252,18 @@ def test_reports_events_in_the_order_they_happened_not_by_category() -> None:
 
 def test_remembers_what_it_sent_and_forgets_it_once_it_ages_out(tmp_path: Any) -> None:
     now = datetime(2026, 9, 14, 14, 0, tzinfo=UTC)
-    seen_file = tmp_path / "seen"
-    pr_notify.write_seen(
+    notification_log = tmp_path / "seen"
+    pr_notify.write_notifications(
         {
             "https://ghe/fresh": now - timedelta(minutes=5),
             "https://ghe/stale": now - timedelta(hours=3),
         },
-        seen_file,
+        notification_log,
     )
 
-    assert set(pr_notify.read_seen(now, seen_file)) == {"https://ghe/fresh"}
+    assert set(pr_notify.get_previously_sent_notifications(now, notification_log)) == {
+        "https://ghe/fresh"
+    }
 
 
 def test_writes_last_run_time_as_iso_format(tmp_path: Any) -> None:

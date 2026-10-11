@@ -32,23 +32,27 @@ def write_time_of_last_run(value: datetime, time_of_last_run_file: Path) -> None
     time_of_last_run_file.write_text(value.isoformat())
 
 
-def read_seen(now: datetime, seen_file: Path) -> dict[str, datetime]:
+def get_previously_sent_notifications(
+    now: datetime, notification_log: Path
+) -> dict[str, datetime]:
     """Events already notified, so an overlapping window delivers each one exactly once."""
-    if not seen_file.exists():
+    if not notification_log.exists():
         return {}
     cutoff = now - config.SEEN_RETENTION
-    seen = {}
-    for line in seen_file.read_text().splitlines():
+    sent_notifications: dict[str, datetime] = {}
+    for line in notification_log.read_text().splitlines():
         stamp, _, url = line.partition("\t")
         if url and datetime.fromisoformat(stamp) > cutoff:
-            seen[url] = datetime.fromisoformat(stamp)
-    return seen
+            sent_notifications[url] = datetime.fromisoformat(stamp)
+    return sent_notifications
 
 
-def write_seen(seen: dict[str, datetime], seen_file: Path) -> None:
-    seen_file.parent.mkdir(parents=True, exist_ok=True)
-    seen_file.write_text(
-        "".join(f"{stamp.isoformat()}\t{url}\n" for url, stamp in seen.items())
+def write_notifications(
+    notifications: dict[str, datetime], notification_log: Path
+) -> None:
+    notification_log.parent.mkdir(parents=True, exist_ok=True)
+    notification_log.write_text(
+        "".join(f"{stamp.isoformat()}\t{url}\n" for url, stamp in notifications.items())
     )
 
 
@@ -186,18 +190,20 @@ def main() -> int:
             teams.send_alert(webhook_url, f"GitHub rejected the token ({error.code}).")
         return 1
 
-    sent: list[int] = []
-    seen = read_seen(run_starttime, config.SEEN_FILE)
-    pending = [
+    status_responses: list[int] = []
+    sent_notifications = get_previously_sent_notifications(
+        run_starttime, config.NOTIFICATION_LOG
+    )
+    pending_notifications = [
         (pull_request, event)
         for pull_request in pull_requests
         for event in collect_events(
             pull_request, previous_run_starttime - config.SEARCH_LOOKBACK, me
         )
-        if event["url"] not in seen
+        if event["url"] not in sent_notifications
     ]
     for index, (pull_request, event) in enumerate(
-        sorted(pending, key=lambda pair: pair[1]["at"])
+        sorted(pending_notifications, key=lambda pair: pair[1]["at"])
     ):
         if index:
             time.sleep(config.POST_SPACING)
@@ -205,16 +211,16 @@ def main() -> int:
         status, body, _ = teams.post_card(
             webhook_url, teams.build_card(pull_request, event)
         )
-        seen[event["url"]] = run_starttime
-        sent.append(status)
+        sent_notifications[event["url"]] = run_starttime
+        status_responses.append(status)
         if body.strip():
             print(f"webhook replied {status}: {body[:200]!r}")
 
-    write_seen(seen, config.SEEN_FILE)
+    write_notifications(sent_notifications, config.NOTIFICATION_LOG)
     write_time_of_last_run(run_starttime, config.TIME_OF_LAST_RUN_FILE)
     print(
         f"since={previous_run_starttime.isoformat()} pull_requests={len(pull_requests)} "
-        f"notifications={len(sent)} webhook_status={sorted(set(sent))}"
+        f"notifications={len(status_responses)} webhook_status={sorted(set(status_responses))}"
     )
     return 0
 

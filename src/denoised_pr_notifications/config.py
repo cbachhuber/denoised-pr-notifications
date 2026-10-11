@@ -37,10 +37,10 @@ class Config:
     )
     COLD_START_LOOKBACK: timedelta = timedelta(hours=1)
     # GitHub's search index trails reality by seconds, which the last-run time can outrun. Both the search and
-    # the event window therefore reach back past it, and SEEN_FILE stops the overlap repeating itself.
+    # the event window therefore reach back past it, and NOTIFICATION_LOG stops the overlap repeating itself.
     SEARCH_LOOKBACK: timedelta = timedelta(minutes=10)
     SEEN_RETENTION: timedelta = timedelta(hours=2)
-    SEEN_FILE: Path = _STATE_FOLDER / "seen"
+    NOTIFICATION_LOG: Path = _STATE_FOLDER / "seen"
     # Each post starts its own Power Automate run and those race, so cards are spaced rather than fired together.
     POST_SPACING: float = float(os.environ.get("POST_SPACING", "1.5"))
     # Minimum interval between alert posts
