@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
 
-from .config import config
-from .github_api import Comment
+from denoised_pr_notifications.config import config
+from denoised_pr_notifications.github_api import Comment
 
 
 class EventKind(Enum):

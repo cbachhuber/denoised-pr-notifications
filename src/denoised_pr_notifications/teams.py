@@ -7,9 +7,9 @@ import urllib.request
 from datetime import UTC, datetime
 from typing import Any
 
-from .config import config
-from .events import Event, EventKind
-from .github_api import PullRequest
+from denoised_pr_notifications.config import config
+from denoised_pr_notifications.events import Event, EventKind
+from denoised_pr_notifications.github_api import PullRequest
 
 
 def post_card(webhook_url: str, card: dict[str, Any]) -> tuple[int, bytes, Any]:

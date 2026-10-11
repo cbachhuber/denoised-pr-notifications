@@ -14,10 +14,10 @@ import urllib.error
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import github_api, teams
-from .config import config
-from .events import Event, EventKind
-from .github_api import Comment, PullRequest
+from denoised_pr_notifications import github_api, teams
+from denoised_pr_notifications.config import config
+from denoised_pr_notifications.events import Event, EventKind
+from denoised_pr_notifications.github_api import Comment, PullRequest
 
 # Dismissed and pending reviews are deliberately absent: they are not news.
 REVIEW_KINDS = {

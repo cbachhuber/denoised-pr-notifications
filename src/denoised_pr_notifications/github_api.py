@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from .config import config
+from denoised_pr_notifications.config import config
 
 QUERY = """
 query($q: String!) {
