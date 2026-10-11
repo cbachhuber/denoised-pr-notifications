@@ -71,3 +71,43 @@ def test_other_graphql_errors_still_fail_loudly(
     with pytest.raises(RuntimeError) as caught:
         github_api.fetch_viewer_and_updated_pull_requests("token", SINCE)
     assert not isinstance(caught.value, github_api.RateLimited)
+
+
+def test_parses_a_response_with_deleted_accounts_and_empty_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deleted_account_comment = {
+        "createdAt": "2026-09-08T12:00:00Z",
+        "url": "https://ghe/c/1",
+        "body": None,
+        "author": None,
+    }
+    node = {
+        "title": "Do the thing",
+        "url": "https://ghe/pr/42",
+        "mergedAt": "2026-09-08T13:00:00Z",
+        "mergedBy": None,
+        "author": None,
+        "comments": {"nodes": [deleted_account_comment]},
+        "reviews": {"nodes": []},
+        "reviewThreads": {
+            "nodes": [{"comments": {"nodes": [deleted_account_comment]}}]
+        },
+    }
+    payload = {
+        "data": {"viewer": {"login": "chris"}, "search": {"nodes": [node, None]}}
+    }
+    monkeypatch.setattr(github_api, "post_json", graphql_replying(payload))
+
+    me, (pull_request,) = github_api.fetch_viewer_and_updated_pull_requests(
+        "token", SINCE
+    )
+
+    assert me == "chris"
+    assert pull_request.author == "ghost"
+    assert pull_request.merge == github_api.Merge(
+        at=datetime(2026, 9, 8, 13, 0, tzinfo=UTC), by="ghost"
+    )
+    assert pull_request.comments[0].author == "ghost"
+    assert pull_request.comments[0].body == ""
+    assert len(pull_request.review_threads[0]) == 1

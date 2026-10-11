@@ -13,10 +13,11 @@ import time
 import urllib.error
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from . import github_api, teams
 from .config import config
+from .events import Event
+from .github_api import Comment, PullRequest
 
 
 def get_time_of_last_run(time_of_last_run_file: Path) -> datetime:
@@ -56,13 +57,7 @@ def write_notifications(
     )
 
 
-def login_of(node: dict[str, Any] | None) -> str:
-    return (node or {}).get("login") or "ghost"
-
-
-def collect_events(
-    pull_request: dict[str, Any], since: datetime, me: str
-) -> list[dict[str, str]]:
+def collect_events(pull_request: PullRequest, since: datetime, me: str) -> list[Event]:
     """Return the activity on one pull request that happened after ``since`` and is worth telling me about.
 
     On pull requests I did not author, only threads I am actually in qualify: whether someone else's
@@ -72,101 +67,58 @@ def collect_events(
     def is_worth_reporting(login: str) -> bool:
         return login != me and login not in config.IGNORED_AUTHORS
 
-    def is_new(entry: dict[str, Any]) -> bool:
-        return datetime.fromisoformat(
-            entry["createdAt"]
-        ) > since and is_worth_reporting(login_of(entry.get("author")))
+    def is_new(entry: Comment) -> bool:
+        return entry.created_at > since and is_worth_reporting(entry.author)
 
-    def is_addressed_to_me(entry: dict[str, Any]) -> bool:
-        return f"@{me}" in (entry["body"] or "")
+    def is_addressed_to_me(entry: Comment) -> bool:
+        return f"@{me}" in entry.body
 
-    is_mine = login_of(pull_request["author"]) == me
+    is_mine = pull_request.author == me
 
-    def joined_at(entries: list[dict[str, Any]]) -> datetime | None:
-        spoke = [
-            datetime.fromisoformat(e["createdAt"])
-            for e in entries
-            if login_of(e["author"]) == me
-        ]
-        return min(spoke) if spoke else None
+    def joined_at(entries: list[Comment]) -> datetime | None:
+        return min((e.created_at for e in entries if e.author == me), default=None)
 
-    def follows_me(entry: dict[str, Any], joined: datetime | None) -> bool:
+    def follows_me(entry: Comment, joined: datetime | None) -> bool:
         """Replies older than my arrival belong to a conversation that was never mine."""
         if is_mine:
             return True
-        if joined and datetime.fromisoformat(entry["createdAt"]) > joined:
+        if joined and entry.created_at > joined:
             return True
         return is_addressed_to_me(entry)
 
-    conversation = pull_request["comments"]["nodes"]
-    events: list[dict[str, str]] = []
+    conversation = pull_request.comments
+    events: list[Event] = []
 
     joined_conversation = joined_at(conversation)
     for comment in conversation:
         if is_new(comment) and follows_me(comment, joined_conversation):
-            events.append(
-                {
-                    "kind": "Comment",
-                    "actor": login_of(comment["author"]),
-                    **_create_body(comment),
-                }
-            )
+            events.append(Event.from_comment("Comment", comment))
 
-    for thread in pull_request["reviewThreads"]["nodes"]:
-        replies = thread["comments"]["nodes"]
+    for replies in pull_request.review_threads:
         joined_thread = joined_at(replies)
         for comment in replies:
             if is_new(comment) and follows_me(comment, joined_thread):
-                events.append(
-                    {
-                        "kind": "Review comment",
-                        "actor": login_of(comment["author"]),
-                        **_create_body(comment),
-                    }
-                )
+                events.append(Event.from_comment("Review comment", comment))
 
     if not is_mine:
         return events
 
-    for review in pull_request["reviews"]["nodes"]:
+    for review in pull_request.reviews:
         # A COMMENTED review with no body is just the envelope around inline comments.
-        if (
-            not is_new(review)
-            or login_of(review["author"]) in config.IGNORED_REVIEW_AUTHORS
-        ):
+        if not is_new(review) or review.author in config.IGNORED_REVIEW_AUTHORS:
             continue
-        if review["body"] or review["state"] != "COMMENTED":
-            kind = f"Review: {review['state'].replace('_', ' ').title()}"
-            events.append(
-                {
-                    "kind": kind,
-                    "actor": login_of(review["author"]),
-                    **_create_body(review),
-                }
-            )
+        if review.body or review.state != "COMMENTED":
+            kind = f"Review: {review.state.replace('_', ' ').title()}"
+            events.append(Event.from_comment(kind, review))
 
-    merged_at = pull_request["mergedAt"]
+    merge = pull_request.merge
     # The merge queue credits whoever enqueued the pull request, so "merged by me" is still news.
-    if merged_at and datetime.fromisoformat(merged_at) > since:
+    if merge and merge.at > since:
         events.append(
-            {
-                "kind": "Merged",
-                "actor": login_of(pull_request["mergedBy"]),
-                "at": merged_at,
-                "url": pull_request["url"],
-                "preview": "",
-            }
+            Event(kind="Merged", actor=merge.by, at=merge.at, url=pull_request.url)
         )
 
-    return sorted(events, key=lambda event: event["at"])
-
-
-def _create_body(entry: dict[str, Any]) -> dict[str, str]:
-    body = (entry["body"] or "").strip()
-    preview = body[: config.BODY_PREVIEW_CHARS] + (
-        "…" if len(body) > config.BODY_PREVIEW_CHARS else ""
-    )
-    return {"at": entry["createdAt"], "url": entry["url"], "preview": preview}
+    return sorted(events, key=lambda event: event.at)
 
 
 def main() -> int:
@@ -200,10 +152,10 @@ def main() -> int:
         for event in collect_events(
             pull_request, previous_run_starttime - config.SEARCH_LOOKBACK, me
         )
-        if event["url"] not in sent_notifications
+        if event.url not in sent_notifications
     ]
     for index, (pull_request, event) in enumerate(
-        sorted(pending_notifications, key=lambda pair: pair[1]["at"])
+        sorted(pending_notifications, key=lambda pair: pair[1].at)
     ):
         if index:
             time.sleep(config.POST_SPACING)
@@ -211,7 +163,7 @@ def main() -> int:
         status, body, _ = teams.post_card(
             webhook_url, teams.build_card(pull_request, event)
         )
-        sent_notifications[event["url"]] = run_starttime
+        sent_notifications[event.url] = run_starttime
         status_responses.append(status)
         if body.strip():
             print(f"webhook replied {status}: {body[:200]!r}")

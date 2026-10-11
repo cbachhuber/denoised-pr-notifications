@@ -2,69 +2,57 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
 from denoised_pr_notifications import pr_notify
+from denoised_pr_notifications.github_api import Comment, Merge, PullRequest, Review
 from denoised_pr_notifications.pr_notify import collect_events
 
 ME = "chris"
 SINCE = datetime(2026, 9, 8, 11, 0, tzinfo=UTC)
-BEFORE = "2026-09-08T10:00:00Z"
-AFTER = "2026-09-08T12:00:00Z"
-LATER = "2026-09-08T13:00:00Z"
+BEFORE = datetime(2026, 9, 8, 10, 0, tzinfo=UTC)
+AFTER = datetime(2026, 9, 8, 12, 0, tzinfo=UTC)
+LATER = datetime(2026, 9, 8, 13, 0, tzinfo=UTC)
 
 
 def comment(
-    author: str = "colleague", created_at: str = AFTER, body: str = "a remark"
-) -> dict[str, Any]:
-    return {
-        "createdAt": created_at,
-        "url": "https://ghe/c/1",
-        "body": body,
-        "author": {"login": author},
-    }
+    author: str = "colleague", created_at: datetime = AFTER, body: str = "a remark"
+) -> Comment:
+    return Comment(
+        author=author, created_at=created_at, url="https://ghe/c/1", body=body
+    )
 
 
 def review(
     author: str = "colleague",
-    created_at: str = AFTER,
+    created_at: datetime = AFTER,
     body: str = "",
     state: str = "APPROVED",
-) -> dict[str, Any]:
-    return {
-        "createdAt": created_at,
-        "url": "https://ghe/r/1",
-        "body": body,
-        "state": state,
-        "author": {"login": author},
-    }
+) -> Review:
+    return Review(
+        author=author,
+        created_at=created_at,
+        url="https://ghe/r/1",
+        body=body,
+        state=state,
+    )
 
 
-def pull_request(**overrides: Any) -> dict[str, Any]:
-    base: dict[str, Any] = {
-        "number": 42,
-        "title": "Do the thing",
-        "url": "https://ghe/pr/42",
-        "mergedAt": None,
-        "mergedBy": None,
-        "author": {"login": ME},
-        "repository": {"nameWithOwner": "foo/repo"},
-        "comments": {"nodes": []},
-        "reviews": {"nodes": []},
-        "reviewThreads": {"nodes": []},
-    }
-    return base | overrides
+def pull_request(**overrides: Any) -> PullRequest:
+    base = PullRequest(title="Do the thing", url="https://ghe/pr/42", author=ME)
+    return replace(base, **overrides)
 
 
-def kinds(pr: dict[str, Any]) -> list[str]:
-    return [event["kind"] for event in collect_events(pr, SINCE, ME)]
+def kinds(pr: PullRequest) -> list[str]:
+    return [event.kind for event in collect_events(pr, SINCE, ME)]
 
 
 def test_reports_a_new_comment_from_someone_else() -> None:
-    assert kinds(pull_request(comments={"nodes": [comment()]})) == ["Comment"]
+    assert kinds(pull_request(comments=[comment()])) == ["Comment"]
 
 
 @pytest.mark.parametrize(
@@ -75,69 +63,60 @@ def test_reports_a_new_comment_from_someone_else() -> None:
         ("CI chatter from a bot", comment(author="github-actions")),
     ],
 )
-def test_ignores_comments_that_are_not_news(case: str, node: dict[str, Any]) -> None:
-    assert kinds(pull_request(comments={"nodes": [node]})) == [], case
+def test_ignores_comments_that_are_not_news(case: str, node: Comment) -> None:
+    assert kinds(pull_request(comments=[node])) == [], case
 
 
 def test_reports_a_review_verdict_on_my_pull_request() -> None:
-    assert kinds(
-        pull_request(reviews={"nodes": [review(state="CHANGES_REQUESTED")]})
-    ) == ["Review: Changes Requested"]
+    assert kinds(pull_request(reviews=[review(state="CHANGES_REQUESTED")])) == [
+        "Review: Changes Requested"
+    ]
 
 
 def test_ignores_the_empty_envelope_review_wrapping_inline_comments() -> None:
-    assert (
-        kinds(pull_request(reviews={"nodes": [review(state="COMMENTED", body="")]}))
-        == []
-    )
+    assert kinds(pull_request(reviews=[review(state="COMMENTED", body="")])) == []
 
 
 def test_reports_inline_review_comments() -> None:
-    threads = {"nodes": [{"comments": {"nodes": [comment(), comment(author=ME)]}}]}
-    assert kinds(pull_request(reviewThreads=threads)) == ["Review comment"]
+    threads = [[comment(), comment(author=ME)]]
+    assert kinds(pull_request(review_threads=threads)) == ["Review comment"]
 
 
 def test_reports_a_merge_that_happened_after_the_last_run_time() -> None:
-    merged = pull_request(mergedAt=AFTER, mergedBy={"login": "colleague"})
+    merged = pull_request(merge=Merge(at=AFTER, by="colleague"))
     assert kinds(merged) == ["Merged"]
 
 
 def test_reports_my_own_merge_because_the_merge_queue_credits_the_enqueuer() -> None:
-    merged = pull_request(mergedAt=AFTER, mergedBy={"login": ME})
+    merged = pull_request(merge=Merge(at=AFTER, by=ME))
     assert kinds(merged) == ["Merged"]
 
 
 def test_ignores_a_merge_that_predates_the_last_run_time() -> None:
-    assert kinds(pull_request(mergedAt=BEFORE, mergedBy={"login": "colleague"})) == []
+    assert kinds(pull_request(merge=Merge(at=BEFORE, by="colleague"))) == []
 
 
 def test_truncates_long_bodies_but_keeps_the_link() -> None:
     (event,) = collect_events(
-        pull_request(comments={"nodes": [comment(body="x" * 500)]}), SINCE, ME
+        pull_request(comments=[comment(body="x" * 500)]), SINCE, ME
     )
-    assert event["preview"].endswith("…")
-    assert len(event["preview"]) == 401
-    assert event["url"] == "https://ghe/c/1"
+    assert event.preview.endswith("…")
+    assert len(event.preview) == 401
+    assert event.url == "https://ghe/c/1"
 
 
-def test_survives_a_deleted_account() -> None:
-    ghosted = comment() | {"author": None}
-    (event,) = collect_events(pull_request(comments={"nodes": [ghosted]}), SINCE, ME)
-    assert event["actor"] == "ghost"
-
-
-def someone_elses_pull_request(**overrides: Any) -> dict[str, Any]:
-    return pull_request(author={"login": "colleague"}, **overrides)
+def someone_elses_pull_request(**overrides: Any) -> PullRequest:
+    return pull_request(author="colleague", **overrides)
 
 
 @pytest.mark.parametrize(
     ("case", "overrides"),
     [
-        ("an approval", {"reviews": {"nodes": [review(state="APPROVED")]}}),
-        ("a merge", {"mergedAt": AFTER, "mergedBy": {"login": "someone"}}),
+        ("an approval", {"reviews": [review(state="APPROVED")]}),
+        ("a merge", {"merge": Merge(at=AFTER, by="someone")}),
         (
             "chatter in a conversation I never joined",
-            {"comments": {"nodes": [comment()]}},
+            {"comments": [comment()]},
         ),
     ],
 )
@@ -148,63 +127,39 @@ def test_ignores_activity_on_pull_requests_i_did_not_author(
 
 
 def test_reports_replies_in_a_conversation_i_joined() -> None:
-    joined = {"nodes": [comment(author=ME, created_at=BEFORE), comment()]}
+    joined = [comment(author=ME, created_at=BEFORE), comment()]
     assert kinds(someone_elses_pull_request(comments=joined)) == ["Comment"]
 
 
 def test_reports_replies_only_in_the_review_threads_i_am_part_of() -> None:
-    my_thread = {
-        "comments": {"nodes": [comment(author=ME, created_at=BEFORE), comment()]}
-    }
-    someone_elses_thread = {"comments": {"nodes": [comment()]}}
-    threads = {"nodes": [my_thread, someone_elses_thread]}
-    assert kinds(someone_elses_pull_request(reviewThreads=threads)) == [
+    my_thread = [comment(author=ME, created_at=BEFORE), comment()]
+    someone_elses_thread = [comment()]
+    threads = [my_thread, someone_elses_thread]
+    assert kinds(someone_elses_pull_request(review_threads=threads)) == [
         "Review comment"
     ]
 
 
 def test_ignores_thread_replies_that_predate_my_arrival() -> None:
     # Joining an old thread should not retroactively subscribe me to what was already said in it.
-    already_there = comment(created_at=AFTER)
-    threads = {
-        "nodes": [
-            {
-                "comments": {
-                    "nodes": [already_there, comment(author=ME, created_at=LATER)]
-                }
-            }
-        ]
-    }
-    assert kinds(someone_elses_pull_request(reviewThreads=threads)) == []
+    threads = [[comment(created_at=AFTER), comment(author=ME, created_at=LATER)]]
+    assert kinds(someone_elses_pull_request(review_threads=threads)) == []
 
 
 def test_reports_thread_replies_that_follow_my_arrival() -> None:
-    threads = {
-        "nodes": [
-            {
-                "comments": {
-                    "nodes": [
-                        comment(author=ME, created_at=AFTER),
-                        comment(created_at=LATER),
-                    ]
-                }
-            }
-        ]
-    }
-    assert kinds(someone_elses_pull_request(reviewThreads=threads)) == [
+    threads = [[comment(author=ME, created_at=AFTER), comment(created_at=LATER)]]
+    assert kinds(someone_elses_pull_request(review_threads=threads)) == [
         "Review comment"
     ]
 
 
 def test_ignores_conversation_comments_that_predate_my_arrival() -> None:
-    joined_late = {
-        "nodes": [comment(created_at=AFTER), comment(author=ME, created_at=LATER)]
-    }
+    joined_late = [comment(created_at=AFTER), comment(author=ME, created_at=LATER)]
     assert kinds(someone_elses_pull_request(comments=joined_late)) == []
 
 
 def test_reports_a_direct_mention_even_where_i_am_a_stranger() -> None:
-    summoned = {"nodes": [comment(body=f"could @{ME} weigh in?")]}
+    summoned = [comment(body=f"could @{ME} weigh in?")]
     assert kinds(someone_elses_pull_request(comments=summoned)) == ["Comment"]
 
 
@@ -214,12 +169,8 @@ def test_drops_the_copilot_overview_but_keeps_its_inline_comments() -> None:
         state="COMMENTED",
         body="## Pull request overview",
     )
-    inline = {
-        "nodes": [
-            {"comments": {"nodes": [comment(author="copilot-pull-request-reviewer")]}}
-        ]
-    }
-    assert kinds(pull_request(reviews={"nodes": [overview]}, reviewThreads=inline)) == [
+    inline = [[comment(author="copilot-pull-request-reviewer")]]
+    assert kinds(pull_request(reviews=[overview], review_threads=inline)) == [
         "Review comment"
     ]
 
@@ -244,8 +195,8 @@ def test_a_replay_window_overrides_the_last_run_time(
 def test_reports_events_in_the_order_they_happened_not_by_category() -> None:
     # Cards race each other through Power Automate, so they must at least leave here in order.
     out_of_order = pull_request(
-        comments={"nodes": [comment(created_at=LATER)]},
-        reviews={"nodes": [review(state="APPROVED", created_at=AFTER)]},
+        comments=[comment(created_at=LATER)],
+        reviews=[review(state="APPROVED", created_at=AFTER)],
     )
     assert kinds(out_of_order) == ["Review: Approved", "Comment"]
 

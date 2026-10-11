@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .config import config
+from .events import Event
+from .github_api import PullRequest
 
 
 def post_card(webhook_url: str, card: dict[str, Any]) -> tuple[int, bytes, Any]:
@@ -29,13 +31,13 @@ REVIEW_VERBS = {
 }
 
 
-def format_message(pull_request: dict[str, Any], event: dict[str, str]) -> str:
-    actor, url, title = event["actor"], event["url"], pull_request["title"]
-    if event["kind"] == "Merged":
+def format_message(pull_request: PullRequest, event: Event) -> str:
+    actor, url, title = event.actor, event.url, pull_request.title
+    if event.kind == "Merged":
         return f"[{actor} merged {title}]({url})"
-    if verb := REVIEW_VERBS.get(event["kind"].removeprefix("Review: ")):
+    if verb := REVIEW_VERBS.get(event.kind.removeprefix("Review: ")):
         return f"[{actor} {verb} {title}]({url})"
-    return f"{actor} [commented on {title}]({url})\n{event['preview']}"
+    return f"{actor} [commented on {title}]({url})\n{event.preview}"
 
 
 def wrap_card(
@@ -58,7 +60,7 @@ def wrap_card(
     }
 
 
-def build_card(pull_request: dict[str, Any], event: dict[str, str]) -> dict[str, Any]:
+def build_card(pull_request: PullRequest, event: Event) -> dict[str, Any]:
     text = format_message(pull_request, event)
     return wrap_card([{"type": "TextBlock", "text": text, "wrap": True}], [])
 
