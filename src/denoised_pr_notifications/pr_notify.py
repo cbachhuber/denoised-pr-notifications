@@ -16,8 +16,15 @@ from pathlib import Path
 
 from . import github_api, teams
 from .config import config
-from .events import Event
+from .events import Event, EventKind
 from .github_api import Comment, PullRequest
+
+# Dismissed and pending reviews are deliberately absent: they are not news.
+REVIEW_KINDS = {
+    "APPROVED": EventKind.REVIEW_APPROVED,
+    "CHANGES_REQUESTED": EventKind.REVIEW_CHANGES_REQUESTED,
+    "COMMENTED": EventKind.REVIEW_COMMENTED,
+}
 
 
 def get_time_of_last_run(time_of_last_run_file: Path) -> datetime:
@@ -92,30 +99,39 @@ def collect_events(pull_request: PullRequest, since: datetime, me: str) -> list[
     joined_conversation = joined_at(conversation)
     for comment in conversation:
         if is_new(comment) and follows_me(comment, joined_conversation):
-            events.append(Event.from_comment("Comment", comment))
+            events.append(Event.from_comment(EventKind.COMMENT, comment))
 
     for replies in pull_request.review_threads:
         joined_thread = joined_at(replies)
         for comment in replies:
             if is_new(comment) and follows_me(comment, joined_thread):
-                events.append(Event.from_comment("Review comment", comment))
+                events.append(Event.from_comment(EventKind.REVIEW_COMMENT, comment))
 
     if not is_mine:
         return events
 
     for review in pull_request.reviews:
-        # A COMMENTED review with no body is just the envelope around inline comments.
-        if not is_new(review) or review.author in config.IGNORED_REVIEW_AUTHORS:
+        kind = REVIEW_KINDS.get(review.state)
+        if (
+            kind is None
+            or not is_new(review)
+            or review.author in config.IGNORED_REVIEW_AUTHORS
+        ):
             continue
-        if review.body or review.state != "COMMENTED":
-            kind = f"Review: {review.state.replace('_', ' ').title()}"
+        # A COMMENTED review with no body is just the envelope around inline comments.
+        if review.body or kind is not EventKind.REVIEW_COMMENTED:
             events.append(Event.from_comment(kind, review))
 
     merge = pull_request.merge
     # The merge queue credits whoever enqueued the pull request, so "merged by me" is still news.
     if merge and merge.at > since:
         events.append(
-            Event(kind="Merged", actor=merge.by, at=merge.at, url=pull_request.url)
+            Event(
+                kind=EventKind.MERGED,
+                actor=merge.by,
+                at=merge.at,
+                url=pull_request.url,
+            )
         )
 
     return sorted(events, key=lambda event: event.at)

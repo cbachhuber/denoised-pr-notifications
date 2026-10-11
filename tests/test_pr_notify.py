@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from denoised_pr_notifications import pr_notify
+from denoised_pr_notifications.events import EventKind
 from denoised_pr_notifications.github_api import Comment, Merge, PullRequest, Review
 from denoised_pr_notifications.pr_notify import collect_events
 
@@ -47,12 +48,12 @@ def pull_request(**overrides: Any) -> PullRequest:
     return replace(base, **overrides)
 
 
-def kinds(pr: PullRequest) -> list[str]:
+def kinds(pr: PullRequest) -> list[EventKind]:
     return [event.kind for event in collect_events(pr, SINCE, ME)]
 
 
 def test_reports_a_new_comment_from_someone_else() -> None:
-    assert kinds(pull_request(comments=[comment()])) == ["Comment"]
+    assert kinds(pull_request(comments=[comment()])) == [EventKind.COMMENT]
 
 
 @pytest.mark.parametrize(
@@ -69,8 +70,13 @@ def test_ignores_comments_that_are_not_news(case: str, node: Comment) -> None:
 
 def test_reports_a_review_verdict_on_my_pull_request() -> None:
     assert kinds(pull_request(reviews=[review(state="CHANGES_REQUESTED")])) == [
-        "Review: Changes Requested"
+        EventKind.REVIEW_CHANGES_REQUESTED
     ]
+
+
+@pytest.mark.parametrize("state", ["DISMISSED", "PENDING"])
+def test_ignores_dismissed_and_pending_reviews(state: str) -> None:
+    assert kinds(pull_request(reviews=[review(state=state, body="hm")])) == []
 
 
 def test_ignores_the_empty_envelope_review_wrapping_inline_comments() -> None:
@@ -79,17 +85,17 @@ def test_ignores_the_empty_envelope_review_wrapping_inline_comments() -> None:
 
 def test_reports_inline_review_comments() -> None:
     threads = [[comment(), comment(author=ME)]]
-    assert kinds(pull_request(review_threads=threads)) == ["Review comment"]
+    assert kinds(pull_request(review_threads=threads)) == [EventKind.REVIEW_COMMENT]
 
 
 def test_reports_a_merge_that_happened_after_the_last_run_time() -> None:
     merged = pull_request(merge=Merge(at=AFTER, by="colleague"))
-    assert kinds(merged) == ["Merged"]
+    assert kinds(merged) == [EventKind.MERGED]
 
 
 def test_reports_my_own_merge_because_the_merge_queue_credits_the_enqueuer() -> None:
     merged = pull_request(merge=Merge(at=AFTER, by=ME))
-    assert kinds(merged) == ["Merged"]
+    assert kinds(merged) == [EventKind.MERGED]
 
 
 def test_ignores_a_merge_that_predates_the_last_run_time() -> None:
@@ -128,7 +134,7 @@ def test_ignores_activity_on_pull_requests_i_did_not_author(
 
 def test_reports_replies_in_a_conversation_i_joined() -> None:
     joined = [comment(author=ME, created_at=BEFORE), comment()]
-    assert kinds(someone_elses_pull_request(comments=joined)) == ["Comment"]
+    assert kinds(someone_elses_pull_request(comments=joined)) == [EventKind.COMMENT]
 
 
 def test_reports_replies_only_in_the_review_threads_i_am_part_of() -> None:
@@ -136,7 +142,7 @@ def test_reports_replies_only_in_the_review_threads_i_am_part_of() -> None:
     someone_elses_thread = [comment()]
     threads = [my_thread, someone_elses_thread]
     assert kinds(someone_elses_pull_request(review_threads=threads)) == [
-        "Review comment"
+        EventKind.REVIEW_COMMENT
     ]
 
 
@@ -149,7 +155,7 @@ def test_ignores_thread_replies_that_predate_my_arrival() -> None:
 def test_reports_thread_replies_that_follow_my_arrival() -> None:
     threads = [[comment(author=ME, created_at=AFTER), comment(created_at=LATER)]]
     assert kinds(someone_elses_pull_request(review_threads=threads)) == [
-        "Review comment"
+        EventKind.REVIEW_COMMENT
     ]
 
 
@@ -160,7 +166,7 @@ def test_ignores_conversation_comments_that_predate_my_arrival() -> None:
 
 def test_reports_a_direct_mention_even_where_i_am_a_stranger() -> None:
     summoned = [comment(body=f"could @{ME} weigh in?")]
-    assert kinds(someone_elses_pull_request(comments=summoned)) == ["Comment"]
+    assert kinds(someone_elses_pull_request(comments=summoned)) == [EventKind.COMMENT]
 
 
 def test_drops_the_copilot_overview_but_keeps_its_inline_comments() -> None:
@@ -171,7 +177,7 @@ def test_drops_the_copilot_overview_but_keeps_its_inline_comments() -> None:
     )
     inline = [[comment(author="copilot-pull-request-reviewer")]]
     assert kinds(pull_request(reviews=[overview], review_threads=inline)) == [
-        "Review comment"
+        EventKind.REVIEW_COMMENT
     ]
 
 
@@ -198,7 +204,7 @@ def test_reports_events_in_the_order_they_happened_not_by_category() -> None:
         comments=[comment(created_at=LATER)],
         reviews=[review(state="APPROVED", created_at=AFTER)],
     )
-    assert kinds(out_of_order) == ["Review: Approved", "Comment"]
+    assert kinds(out_of_order) == [EventKind.REVIEW_APPROVED, EventKind.COMMENT]
 
 
 def test_remembers_what_it_sent_and_forgets_it_once_it_ages_out(tmp_path: Any) -> None:

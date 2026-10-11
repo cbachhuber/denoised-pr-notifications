@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .config import config
-from .events import Event
+from .events import Event, EventKind
 from .github_api import PullRequest
 
 
@@ -24,18 +24,17 @@ def post_card(webhook_url: str, card: dict[str, Any]) -> tuple[int, bytes, Any]:
 
 
 # Verdicts and merges are terse links; actual comment text is worth showing in full.
-REVIEW_VERBS = {
-    "Approved": "approved",
-    "Changes Requested": "requested changes on",
-    "Commented": "commented on",
+TERSE_VERBS = {
+    EventKind.REVIEW_APPROVED: "approved",
+    EventKind.REVIEW_CHANGES_REQUESTED: "requested changes on",
+    EventKind.REVIEW_COMMENTED: "commented on",
+    EventKind.MERGED: "merged",
 }
 
 
 def format_message(pull_request: PullRequest, event: Event) -> str:
     actor, url, title = event.actor, event.url, pull_request.title
-    if event.kind == "Merged":
-        return f"[{actor} merged {title}]({url})"
-    if verb := REVIEW_VERBS.get(event.kind.removeprefix("Review: ")):
+    if verb := TERSE_VERBS.get(event.kind):
         return f"[{actor} {verb} {title}]({url})"
     return f"{actor} [commented on {title}]({url})\n{event.preview}"
 
