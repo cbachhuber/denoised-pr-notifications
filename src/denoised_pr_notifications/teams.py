@@ -12,7 +12,7 @@ from denoised_pr_notifications.events import Event, EventKind
 from denoised_pr_notifications.github_api import PullRequest
 
 
-def post_card(webhook_url: str, card: dict[str, Any]) -> tuple[int, bytes, Any]:
+def post_card(webhook_url: str, card: dict[str, Any]) -> tuple[int, bytes]:
     request = urllib.request.Request(
         webhook_url,
         data=json.dumps(card).encode(),
@@ -20,7 +20,7 @@ def post_card(webhook_url: str, card: dict[str, Any]) -> tuple[int, bytes, Any]:
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=30) as response:
-        return response.status, response.read(), response.headers
+        return response.status, response.read()
 
 
 # Verdicts and merges are terse links; actual comment text is worth showing in full.

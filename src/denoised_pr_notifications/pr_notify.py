@@ -137,52 +137,80 @@ def collect_events(pull_request: PullRequest, since: datetime, me: str) -> list[
     return sorted(events, key=lambda event: event.at)
 
 
+def filter_pending_notifications(
+    pull_requests: list[PullRequest],
+    since: datetime,
+    me: str,
+    sent_notifications: dict[str, datetime],
+) -> list[tuple[PullRequest, Event]]:
+    """Unsent events across all pull requests, oldest first."""
+    pending = [
+        (pull_request, event)
+        for pull_request in pull_requests
+        for event in collect_events(pull_request, since - config.SEARCH_LOOKBACK, me)
+        if event.url not in sent_notifications
+    ]
+    return sorted(pending, key=lambda pair: pair[1].at)
+
+
+def send_notifications(
+    webhook_url: str,
+    pending: list[tuple[PullRequest, Event]],
+    sent_notifications: dict[str, datetime],
+    sent_at: datetime,
+) -> list[int]:
+    """Post each event to Teams, record it in ``sent_notifications``, and return the HTTP statuses."""
+    statuses: list[int] = []
+    for index, (pull_request, event) in enumerate(pending):
+        if index:
+            time.sleep(config.POST_SPACING)
+        # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
+        status, body = teams.post_card(
+            webhook_url, teams.build_card(pull_request, event)
+        )
+        sent_notifications[event.url] = sent_at
+        statuses.append(status)
+        if body.strip():
+            print(f"webhook replied {status}: {body[:200]!r}")
+    return statuses
+
+
+def fetch_viewer_and_updated_pull_requests(
+    token: str, webhook_url: str, since: datetime
+) -> tuple[str, list[PullRequest]]:
+    """Fetch the viewer and updated pull requests; exit cleanly if rate limited, alert on a rejected token."""
+    try:
+        return github_api.fetch_viewer_and_updated_pull_requests(token, since=since)
+    except github_api.RateLimited as limited:
+        # Leaving the last-run time alone means the next successful run will cover this gap.
+        print(f"skipped: {limited}")
+        raise SystemExit(0) from limited
+    except urllib.error.HTTPError as error:
+        # A dead token would otherwise fail silently in a repository nobody opens.
+        if error.code in (401, 403):
+            teams.send_alert(webhook_url, f"GitHub rejected the token ({error.code}).")
+        raise
+
+
 def main() -> int:
     token = os.environ["GH_TOKEN"]
     webhook_url = os.environ["TEAMS_WEBHOOK_URL"]
 
     run_starttime = datetime.now(UTC)
     previous_run_starttime = get_time_of_last_run(config.TIME_OF_LAST_RUN_FILE)
-    try:
-        me, pull_requests = github_api.fetch_viewer_and_updated_pull_requests(
-            token, since=previous_run_starttime
-        )
-    except github_api.RateLimited as limited:
-        # Leaving the last-run time alone means the next successful run will cover this gap.
-        print(f"skipped: {limited}")
-        return 0
+    me, pull_requests = fetch_viewer_and_updated_pull_requests(
+        token, webhook_url, previous_run_starttime
+    )
 
-    except urllib.error.HTTPError as error:
-        # A dead token would otherwise fail silently in a repository nobody opens.
-        if error.code in (401, 403):
-            teams.send_alert(webhook_url, f"GitHub rejected the token ({error.code}).")
-        return 1
-
-    status_responses: list[int] = []
     sent_notifications = get_previously_sent_notifications(
         run_starttime, config.NOTIFICATION_LOG
     )
-    pending_notifications = [
-        (pull_request, event)
-        for pull_request in pull_requests
-        for event in collect_events(
-            pull_request, previous_run_starttime - config.SEARCH_LOOKBACK, me
-        )
-        if event.url not in sent_notifications
-    ]
-    for index, (pull_request, event) in enumerate(
-        sorted(pending_notifications, key=lambda pair: pair[1].at)
-    ):
-        if index:
-            time.sleep(config.POST_SPACING)
-        # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
-        status, body, _ = teams.post_card(
-            webhook_url, teams.build_card(pull_request, event)
-        )
-        sent_notifications[event.url] = run_starttime
-        status_responses.append(status)
-        if body.strip():
-            print(f"webhook replied {status}: {body[:200]!r}")
+    pending_notifications = filter_pending_notifications(
+        pull_requests, previous_run_starttime, me, sent_notifications
+    )
+    status_responses = send_notifications(
+        webhook_url, pending_notifications, sent_notifications, run_starttime
+    )
 
     write_notifications(sent_notifications, config.NOTIFICATION_LOG)
     write_time_of_last_run(run_starttime, config.TIME_OF_LAST_RUN_FILE)
