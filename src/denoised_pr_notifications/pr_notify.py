@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 import urllib.error
 from datetime import UTC, datetime
 from pathlib import Path
@@ -153,28 +152,6 @@ def filter_pending_notifications(
     return sorted(pending, key=lambda pair: pair[1].at)
 
 
-def send_notifications(
-    webhook_url: str,
-    pending: list[tuple[PullRequest, Event]],
-    sent_notifications: dict[str, datetime],
-    sent_at: datetime,
-) -> list[int]:
-    """Post each event to Teams, record it in ``sent_notifications``, and return the HTTP statuses."""
-    statuses: list[int] = []
-    for index, (pull_request, event) in enumerate(pending):
-        if index:
-            time.sleep(config.POST_SPACING)
-        # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
-        status, body = teams.post_card(
-            webhook_url, teams.build_card(pull_request, event)
-        )
-        sent_notifications[event.url] = sent_at
-        statuses.append(status)
-        if body.strip():
-            print(f"webhook replied {status}: {body[:200]!r}")
-    return statuses
-
-
 def fetch_viewer_and_updated_pull_requests(
     token: str, webhook_url: str, since: datetime
 ) -> tuple[str, list[PullRequest]]:
@@ -208,15 +185,14 @@ def main() -> int:
     pending_notifications = filter_pending_notifications(
         pull_requests, previous_run_starttime, me, sent_notifications
     )
-    status_responses = send_notifications(
-        webhook_url, pending_notifications, sent_notifications, run_starttime
-    )
+    status_by_url = teams.post_cards(webhook_url, pending_notifications)
+    sent_notifications |= dict.fromkeys(status_by_url, run_starttime)
 
     write_notifications(sent_notifications, config.NOTIFICATION_LOG)
     write_time_of_last_run(run_starttime, config.TIME_OF_LAST_RUN_FILE)
     print(
         f"since={previous_run_starttime.isoformat()} pull_requests={len(pull_requests)} "
-        f"notifications={len(status_responses)} webhook_status={sorted(set(status_responses))}"
+        f"notifications={len(status_by_url)} webhook_status={sorted(set(status_by_url.values()))}"
     )
     return 0
 

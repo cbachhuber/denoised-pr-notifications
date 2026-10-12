@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.request
 from datetime import UTC, datetime
 from typing import Any
@@ -21,6 +22,22 @@ def post_card(webhook_url: str, card: dict[str, Any]) -> tuple[int, bytes]:
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return response.status, response.read()
+
+
+def post_cards(
+    webhook_url: str, notifications: list[tuple[PullRequest, Event]]
+) -> dict[str, int]:
+    """Post one card per event, spaced out, and return the HTTP status by event URL."""
+    statuses: dict[str, int] = {}
+    for index, (pull_request, event) in enumerate(notifications):
+        if index:
+            time.sleep(config.POST_SPACING)
+        # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
+        status, body = post_card(webhook_url, build_card(pull_request, event))
+        statuses[event.url] = status
+        if body.strip():
+            print(f"webhook replied {status}: {body[:200]!r}")
+    return statuses
 
 
 # Verdicts and merges are terse links; actual comment text is worth showing in full.
