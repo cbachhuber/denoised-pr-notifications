@@ -108,7 +108,7 @@ def collect_events(pull_request: PullRequest, since: datetime, me: str) -> list[
         """Replies older than my arrival belong to a conversation that was never mine."""
         return bool(joined and entry.created_at > joined)
 
-    def new_followed(entries: list[Comment]) -> list[Comment]:
+    def entries_worth_notifying_me_about(entries: list[Comment]) -> list[Comment]:
         joined = i_joined_at(entries)
         return [
             e
@@ -121,12 +121,12 @@ def collect_events(pull_request: PullRequest, since: datetime, me: str) -> list[
 
     events = [
         Event.from_comment(EventKind.COMMENT, comment)
-        for comment in new_followed(pull_request.comments)
+        for comment in entries_worth_notifying_me_about(pull_request.comments)
     ]
     for replies in pull_request.review_threads:
         events += [
             Event.from_comment(EventKind.REVIEW_COMMENT, comment)
-            for comment in new_followed(replies)
+            for comment in entries_worth_notifying_me_about(replies)
         ]
 
     if is_my_pr:
