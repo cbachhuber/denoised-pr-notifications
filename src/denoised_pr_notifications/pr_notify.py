@@ -10,13 +10,15 @@ from __future__ import annotations
 import os
 import sys
 import urllib.error
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Final
 
 from denoised_pr_notifications import github_api, teams
 from denoised_pr_notifications.config import config
 from denoised_pr_notifications.events import Event, EventKind
-from denoised_pr_notifications.github_api import Comment, PullRequest
+from denoised_pr_notifications.github_api import Comment, PullRequest, Review
 
 # Dismissed and pending reviews are deliberately absent: they are not news.
 REVIEW_KINDS = {
@@ -63,6 +65,24 @@ def write_notifications(
     )
 
 
+def review_events(
+    reviews: list[Review], is_new_and_worth_reporting: Callable[[Comment], bool]
+) -> list[Event]:
+    events: list[Event] = []
+    for review in reviews:
+        kind = REVIEW_KINDS.get(review.state)
+        if (
+            kind is None
+            or not is_new_and_worth_reporting(review)
+            or review.author in config.IGNORED_REVIEW_AUTHORS
+        ):
+            continue
+        # A COMMENTED review with no body is just the envelope around inline comments.
+        if review.body or kind is not EventKind.REVIEW_COMMENTED:
+            events.append(Event.from_comment(kind, review))
+    return events
+
+
 def collect_events(pull_request: PullRequest, since: datetime, me: str) -> list[Event]:
     """Return the activity on one pull request that happened after ``since`` and is worth telling me about.
 
@@ -70,68 +90,59 @@ def collect_events(pull_request: PullRequest, since: datetime, me: str) -> list[
     pull request got approved or merged is not my business, even if I reviewed it.
     """
 
-    def is_worth_reporting(login: str) -> bool:
-        return login != me and login not in config.IGNORED_AUTHORS
-
-    def is_new(entry: Comment) -> bool:
-        return entry.created_at > since and is_worth_reporting(entry.author)
+    def is_new_and_worth_reporting(entry: Comment) -> bool:
+        is_worth_reporting = (
+            entry.author != me and entry.author not in config.IGNORED_AUTHORS
+        )
+        return entry.created_at > since and is_worth_reporting
 
     def is_addressed_to_me(entry: Comment) -> bool:
         return f"@{me}" in entry.body
 
-    is_mine = pull_request.author == me
+    is_my_pr: Final[bool] = pull_request.author == me
 
-    def joined_at(entries: list[Comment]) -> datetime | None:
+    def i_joined_at(entries: list[Comment]) -> datetime | None:
         return min((e.created_at for e in entries if e.author == me), default=None)
 
-    def follows_me(entry: Comment, joined: datetime | None) -> bool:
+    def happened_after_i_joined(entry: Comment, joined: datetime | None) -> bool:
         """Replies older than my arrival belong to a conversation that was never mine."""
-        if is_mine:
-            return True
-        if joined and entry.created_at > joined:
-            return True
-        return is_addressed_to_me(entry)
+        return bool(joined and entry.created_at > joined)
 
-    conversation = pull_request.comments
-    events: list[Event] = []
-
-    joined_conversation = joined_at(conversation)
-    for comment in conversation:
-        if is_new(comment) and follows_me(comment, joined_conversation):
-            events.append(Event.from_comment(EventKind.COMMENT, comment))
-
-    for replies in pull_request.review_threads:
-        joined_thread = joined_at(replies)
-        for comment in replies:
-            if is_new(comment) and follows_me(comment, joined_thread):
-                events.append(Event.from_comment(EventKind.REVIEW_COMMENT, comment))
-
-    if not is_mine:
-        return events
-
-    for review in pull_request.reviews:
-        kind = REVIEW_KINDS.get(review.state)
-        if (
-            kind is None
-            or not is_new(review)
-            or review.author in config.IGNORED_REVIEW_AUTHORS
-        ):
-            continue
-        # A COMMENTED review with no body is just the envelope around inline comments.
-        if review.body or kind is not EventKind.REVIEW_COMMENTED:
-            events.append(Event.from_comment(kind, review))
-
-    merge = pull_request.merge
-    # The merge queue credits whoever enqueued the pull request, so "merged by me" is still news.
-    if merge and merge.at > since:
-        events.append(
-            Event(
-                kind=EventKind.MERGED,
-                actor=merge.by,
-                at=merge.at,
-                url=pull_request.url,
+    def new_followed(entries: list[Comment]) -> list[Comment]:
+        joined = i_joined_at(entries)
+        return [
+            e
+            for e in entries
+            if is_new_and_worth_reporting(e)
+            and (
+                is_my_pr or happened_after_i_joined(e, joined) or is_addressed_to_me(e)
             )
-        )
+        ]
+
+    events = [
+        Event.from_comment(EventKind.COMMENT, comment)
+        for comment in new_followed(pull_request.comments)
+    ]
+    for replies in pull_request.review_threads:
+        events += [
+            Event.from_comment(EventKind.REVIEW_COMMENT, comment)
+            for comment in new_followed(replies)
+        ]
+
+    if is_my_pr:
+        events += review_events(pull_request.reviews, is_new_and_worth_reporting)
+
+        merge = pull_request.merge
+        # The merge queue credits whoever enqueued the pull request, so "merged by me" is still news.
+        if merge and merge.at > since:
+            events.append(
+                Event(
+                    kind=EventKind.MERGED,
+                    actor=merge.by,
+                    at=merge.at,
+                    url=pull_request.url,
+                )
+            )
 
     return sorted(events, key=lambda event: event.at)
 
