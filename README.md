@@ -37,7 +37,7 @@ On the other hand, they probably have a higher availability than your local mach
 
 These steps target MS Teams, but you can set up any service that provides a webhook for sending notifications to.
 
-1. Create a **channel** where the notifications will be sent, not a private chat.
+1. Create a (private) **channel** where the notifications will be sent, not a private chat.
    Posting to the self-chat fails with `Call made for a thread which is not a ChatThread`, because Graph will not let a bot write there.
 
 2. **Create the Teams webhook.**
