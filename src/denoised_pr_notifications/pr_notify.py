@@ -65,7 +65,7 @@ def write_notifications(
     )
 
 
-def review_events(
+def get_review_events(
     reviews: list[Review], is_new_and_worth_reporting: Callable[[Comment], bool]
 ) -> list[Event]:
     events: list[Event] = []
@@ -130,7 +130,7 @@ def collect_events(pull_request: PullRequest, since: datetime, me: str) -> list[
         ]
 
     if is_my_pr:
-        events += review_events(pull_request.reviews, is_new_and_worth_reporting)
+        events += get_review_events(pull_request.reviews, is_new_and_worth_reporting)
 
         merge = pull_request.merge
         # The merge queue credits whoever enqueued the pull request, so "merged by me" is still news.
