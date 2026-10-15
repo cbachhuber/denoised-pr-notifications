@@ -10,7 +10,6 @@ from typing import Any
 
 from denoised_pr_notifications.config import config
 from denoised_pr_notifications.events import Event, EventKind
-from denoised_pr_notifications.github_api import PullRequest
 
 
 def post_card(webhook_url: str, card: dict[str, Any]) -> tuple[int, bytes]:
@@ -24,16 +23,14 @@ def post_card(webhook_url: str, card: dict[str, Any]) -> tuple[int, bytes]:
         return response.status, response.read()
 
 
-def post_cards(
-    webhook_url: str, notifications: list[tuple[PullRequest, Event]]
-) -> dict[str, int]:
+def post_cards(webhook_url: str, events: list[Event]) -> dict[str, int]:
     """Post one card per event, spaced out, and return the HTTP status by event URL."""
     statuses: dict[str, int] = {}
-    for index, (pull_request, event) in enumerate(notifications):
+    for index, event in enumerate(events):
         if index:
             time.sleep(config.POST_SPACING)
         # 202 only means the Workflows webhook queued it; the flow can still fail afterwards.
-        status, body = post_card(webhook_url, build_card(pull_request, event))
+        status, body = post_card(webhook_url, build_card(event))
         statuses[event.url] = status
         if body.strip():
             print(f"webhook replied {status}: {body[:200]!r}")
@@ -49,8 +46,8 @@ TERSE_VERBS = {
 }
 
 
-def format_message(pull_request: PullRequest, event: Event) -> str:
-    actor, url, title = event.actor, event.url, pull_request.title
+def format_message(event: Event) -> str:
+    actor, url, title = event.actor, event.url, event.pr_title
     if verb := TERSE_VERBS.get(event.kind):
         return f"[{actor} {verb} {title}]({url})"
     return f"{actor} [commented on {title}]({url})\n{event.preview}"
@@ -76,8 +73,8 @@ def wrap_card(
     }
 
 
-def build_card(pull_request: PullRequest, event: Event) -> dict[str, Any]:
-    text = format_message(pull_request, event)
+def build_card(event: Event) -> dict[str, Any]:
+    text = format_message(event)
     return wrap_card([{"type": "TextBlock", "text": text, "wrap": True}], [])
 
 

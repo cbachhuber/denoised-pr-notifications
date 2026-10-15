@@ -66,7 +66,9 @@ def write_notifications(
 
 
 def get_review_events(
-    reviews: list[Review], is_new_and_worth_reporting: Callable[[Comment], bool]
+    reviews: list[Review],
+    pr_title: str,
+    is_new_and_worth_reporting: Callable[[Comment], bool],
 ) -> list[Event]:
     events: list[Event] = []
     for review in reviews:
@@ -79,7 +81,7 @@ def get_review_events(
             continue
         # A COMMENTED review with no body is just the envelope around inline comments.
         if review.body or kind is not EventKind.REVIEW_COMMENTED:
-            events.append(Event.from_comment(kind, review))
+            events.append(Event.from_comment(kind, review, pr_title))
     return events
 
 
@@ -120,17 +122,19 @@ def collect_events(pull_request: PullRequest, since: datetime, me: str) -> list[
         ]
 
     events = [
-        Event.from_comment(EventKind.COMMENT, comment)
+        Event.from_comment(EventKind.COMMENT, comment, pull_request.title)
         for comment in entries_worth_notifying_me_about(pull_request.comments)
     ]
     for replies in pull_request.review_threads:
         events += [
-            Event.from_comment(EventKind.REVIEW_COMMENT, comment)
+            Event.from_comment(EventKind.REVIEW_COMMENT, comment, pull_request.title)
             for comment in entries_worth_notifying_me_about(replies)
         ]
 
     if is_my_pr:
-        events += get_review_events(pull_request.reviews, is_new_and_worth_reporting)
+        events += get_review_events(
+            pull_request.reviews, pull_request.title, is_new_and_worth_reporting
+        )
 
         merge = pull_request.merge
         # The merge queue credits whoever enqueued the pull request, so "merged by me" is still news.
@@ -141,6 +145,7 @@ def collect_events(pull_request: PullRequest, since: datetime, me: str) -> list[
                     actor=merge.by,
                     at=merge.at,
                     url=pull_request.url,
+                    pr_title=pull_request.title,
                 )
             )
 
@@ -152,15 +157,15 @@ def filter_pending_notifications(
     since: datetime,
     me: str,
     sent_notifications: dict[str, datetime],
-) -> list[tuple[PullRequest, Event]]:
+) -> list[Event]:
     """Unsent events across all pull requests, oldest first."""
     pending = [
-        (pull_request, event)
+        event
         for pull_request in pull_requests
         for event in collect_events(pull_request, since - config.SEARCH_LOOKBACK, me)
         if event.url not in sent_notifications
     ]
-    return sorted(pending, key=lambda pair: pair[1].at)
+    return sorted(pending, key=lambda event: event.at)
 
 
 def fetch_viewer_and_updated_pull_requests(

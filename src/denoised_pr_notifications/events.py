@@ -25,10 +25,11 @@ class Event:
     actor: str
     at: datetime
     url: str
+    pr_title: str
     preview: str = ""
 
     @classmethod
-    def from_comment(cls, kind: EventKind, comment: Comment) -> Event:
+    def from_comment(cls, kind: EventKind, comment: Comment, pr_title: str) -> Event:
         body = comment.body.strip()
         preview = body[: config.BODY_PREVIEW_CHARS] + (
             "…" if len(body) > config.BODY_PREVIEW_CHARS else ""
@@ -38,5 +39,6 @@ class Event:
             actor=comment.author,
             at=comment.created_at,
             url=comment.url,
+            pr_title=pr_title,
             preview=preview,
         )

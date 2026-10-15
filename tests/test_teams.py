@@ -8,11 +8,6 @@ import pytest
 
 from denoised_pr_notifications import teams
 from denoised_pr_notifications.events import Event, EventKind
-from denoised_pr_notifications.github_api import PullRequest
-
-PULL_REQUEST = PullRequest(
-    title="Make the change", url="https://example/pr/1", author="alex"
-)
 
 
 def event(kind: EventKind, preview: str = "") -> Event:
@@ -21,6 +16,7 @@ def event(kind: EventKind, preview: str = "") -> Event:
         actor="alex",
         at=datetime(2026, 1, 1, tzinfo=UTC),
         url="https://example/pr/1",
+        pr_title="Make the change",
         preview=preview,
     )
 
@@ -43,11 +39,11 @@ def event(kind: EventKind, preview: str = "") -> Event:
     ],
 )
 def test_formats_activity_message(event: Event, expected: str) -> None:
-    assert teams.format_message(PULL_REQUEST, event) == expected
+    assert teams.format_message(event) == expected
 
 
 def test_builds_adaptive_card_for_activity() -> None:
-    card = teams.build_card(PULL_REQUEST, event(EventKind.MERGED))
+    card = teams.build_card(event(EventKind.MERGED))
 
     assert card["type"] == "message"
     attachment = card["attachments"][0]
