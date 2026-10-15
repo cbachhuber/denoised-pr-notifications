@@ -15,8 +15,8 @@ SINCE = datetime(2026, 9, 8, 11, 0, tzinfo=UTC)
 
 
 def graphql_replying(payload: dict[str, Any]) -> Any:
-    def reply(*_args: Any, **_kwargs: Any) -> tuple[int, bytes, dict[str, str]]:
-        return 200, json.dumps(payload).encode(), {}
+    def reply(*_args: Any, **_kwargs: Any) -> tuple[bytes, dict[str, str]]:
+        return json.dumps(payload).encode(), {}
 
     return reply
 

@@ -41,6 +41,11 @@ query($q: String!) {
 """
 
 
+def _login(node: dict[str, Any] | None) -> str:
+    # GraphQL returns null for deleted accounts.
+    return (node or {}).get("login") or "ghost"
+
+
 @dataclass(frozen=True)
 class Comment:
     author: str
@@ -48,10 +53,29 @@ class Comment:
     url: str
     body: str
 
+    @classmethod
+    def from_graphql_node(cls, node: dict[str, Any]) -> Comment:
+        return cls(
+            author=_login(node["author"]),
+            created_at=datetime.fromisoformat(node["createdAt"]),
+            url=node["url"],
+            body=node["body"] or "",
+        )
+
 
 @dataclass(frozen=True)
 class Review(Comment):
     state: str
+
+    @classmethod
+    def from_graphql_node(cls, node: dict[str, Any]) -> Review:
+        return cls(
+            author=_login(node["author"]),
+            created_at=datetime.fromisoformat(node["createdAt"]),
+            url=node["url"],
+            body=node["body"] or "",
+            state=node["state"],
+        )
 
 
 @dataclass(frozen=True)
@@ -70,54 +94,30 @@ class PullRequest:
     reviews: list[Review] = field(default_factory=list)
     review_threads: list[list[Comment]] = field(default_factory=list)
 
-
-def _login(node: dict[str, Any] | None) -> str:
-    # GraphQL returns null for deleted accounts.
-    return (node or {}).get("login") or "ghost"
-
-
-def _parse_comment(node: dict[str, Any]) -> Comment:
-    return Comment(
-        author=_login(node["author"]),
-        created_at=datetime.fromisoformat(node["createdAt"]),
-        url=node["url"],
-        body=node["body"] or "",
-    )
-
-
-def _parse_review(node: dict[str, Any]) -> Review:
-    return Review(
-        author=_login(node["author"]),
-        created_at=datetime.fromisoformat(node["createdAt"]),
-        url=node["url"],
-        body=node["body"] or "",
-        state=node["state"],
-    )
-
-
-def _parse_pull_request(node: dict[str, Any]) -> PullRequest:
-    merged_at = node["mergedAt"]
-    return PullRequest(
-        title=node["title"],
-        url=node["url"],
-        author=_login(node["author"]),
-        merge=(
-            Merge(at=datetime.fromisoformat(merged_at), by=_login(node["mergedBy"]))
-            if merged_at
-            else None
-        ),
-        comments=[_parse_comment(c) for c in node["comments"]["nodes"]],
-        reviews=[_parse_review(r) for r in node["reviews"]["nodes"]],
-        review_threads=[
-            [_parse_comment(c) for c in thread["comments"]["nodes"]]
-            for thread in node["reviewThreads"]["nodes"]
-        ],
-    )
+    @classmethod
+    def from_graphql_node(cls, node: dict[str, Any]) -> PullRequest:
+        merged_at = node["mergedAt"]
+        return cls(
+            title=node["title"],
+            url=node["url"],
+            author=_login(node["author"]),
+            merge=(
+                Merge(at=datetime.fromisoformat(merged_at), by=_login(node["mergedBy"]))
+                if merged_at
+                else None
+            ),
+            comments=[Comment.from_graphql_node(c) for c in node["comments"]["nodes"]],
+            reviews=[Review.from_graphql_node(r) for r in node["reviews"]["nodes"]],
+            review_threads=[
+                [Comment.from_graphql_node(c) for c in thread["comments"]["nodes"]]
+                for thread in node["reviewThreads"]["nodes"]
+            ],
+        )
 
 
 def post_json(
     url: str, payload: dict[str, Any], headers: dict[str, str]
-) -> tuple[int, bytes, Any]:
+) -> tuple[bytes, Any]:
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
@@ -125,7 +125,7 @@ def post_json(
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=30) as response:
-        return response.status, response.read(), response.headers
+        return response.read(), response.headers
 
 
 def build_search_query(since: datetime) -> str:
@@ -144,7 +144,7 @@ class RateLimited(RuntimeError):
 def fetch_viewer_and_updated_pull_requests(
     token: str, since: datetime
 ) -> tuple[str, list[PullRequest]]:
-    _, raw, headers = post_json(
+    raw, headers = post_json(
         config.GRAPHQL_URL,
         {"query": QUERY, "variables": {"q": build_search_query(since)}},
         {"Authorization": f"Bearer {token}"},
@@ -159,5 +159,5 @@ def fetch_viewer_and_updated_pull_requests(
         raise RuntimeError(f"GraphQL query failed: {errors}")
     data = response["data"]
     return data["viewer"]["login"], [
-        _parse_pull_request(node) for node in data["search"]["nodes"] if node
+        PullRequest.from_graphql_node(node) for node in data["search"]["nodes"] if node
     ]
