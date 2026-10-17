@@ -6,6 +6,7 @@ import json
 import time
 import urllib.request
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from denoised_pr_notifications.config import config
@@ -101,9 +102,9 @@ def build_alert_card(message: str) -> dict[str, Any]:
     )
 
 
-def send_alert(webhook_url: str, message: str) -> None:
+def send_alert(webhook_url: str, message: str, state_dir: Path) -> None:
     """Report a broken notifier, at most once an hour so a minutely schedule cannot spam the channel."""
-    stamp = config.TIME_OF_LAST_RUN_FILE.with_name("last-alert")
+    stamp = state_dir / "last-alert"
     if (
         stamp.exists()
         and datetime.now(UTC) - datetime.fromtimestamp(stamp.stat().st_mtime, UTC)

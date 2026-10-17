@@ -44,7 +44,18 @@ These steps target MS Teams, but you can set up any service that provides a webh
    In Teams open the **Workflows** app and create from the template *Post to a channel when a webhook request is received*, targeting a channel, then copy the generated URL.
    This must be a Workflows webhook.
 
-3. That's it, you can proceed to [running from GitHub actions](#running-from-github-actions) or [from your local machine](#running-from-your-local-machine).
+3. **Create the recipients file**, a TOML file that maps the GitHub login of everyone who wants notifications to their own webhook (repeat step 2 per person).
+
+   ```toml
+   alice = 'https://...'
+   bob = 'https://...'
+   ```
+
+   Single-quote the URLs, and keep the file private (`chmod 600`), as the URLs are secrets.
+   [run.sh](run.sh) reads `~/.config/pr-notify/recipients.toml`.
+   The token owner must be able to see the PRs of everyone listed.
+
+4. That's it, you can proceed to [running from GitHub actions](#running-from-github-actions) or [from your local machine](#running-from-your-local-machine).
    To avoid message footer `Foo Bar used a Workflow template to send this card. Get template` on every notification, you may optionally follow [these instructions](#optional-polish-drop-the-attribution-footer) before proceeding.
 
 ### Running from your local machine
@@ -60,7 +71,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone git@github.com:cbachhuber/denoised-pr-notifications.git ~/denoised-pr-notifications
 mkdir -p ~/.config/pr-notify && chmod 700 ~/.config/pr-notify
 cat > ~/.config/pr-notify/env <<'EOF'
-TEAMS_WEBHOOK_URL='https://...'  # quote the URL to ensure the '&' contained in the string isn't interpreted
 # GH_HOST=my_org.ghe.com  # only needed if you're not on github.com
 EOF
 chmod 600 ~/.config/pr-notify/env
@@ -68,7 +78,7 @@ chmod 600 ~/.config/pr-notify/env
 crontab -e   # then append  `* * * * * $HOME/denoised-pr-notifications/run.sh` to run once per minute
 ```
 
-Cron reports failures to nobody, so `run.sh` posts a card when a run exits non-zero, and the `pr-notify` command throttles its own alerts to one an hour.
+Cron reports failures to nobody, so check `~/.local/state/pr-notify/log` if notifications stop; the `pr-notify` command itself posts an alert to the affected recipient when GitHub rejects the token, throttled to one an hour.
 
 ### Running from GitHub actions
 
@@ -90,7 +100,7 @@ Cron reports failures to nobody, so `run.sh` posts a card when a run exits non-z
 3. **Store both secrets.**
 
    ```bash
-   gh secret set TEAMS_WEBHOOK_URL
+   gh secret set RECIPIENTS < recipients.toml
    gh secret set PR_NOTIFY_TOKEN
    ```
 
@@ -109,7 +119,7 @@ However, a copied flow has no originating template and therefore no footer.
 1. At [make.powerautomate.com](https://make.powerautomate.com/): **My flows** → open the flow → **Save As** → name it → **Save**.
 2. Reopen the copy from **My flows** and click **Turn On**; copies are created disabled.
 3. Turn the original off so it cannot double-post.
-4. The copy has a **different webhook URL** — update `TEAMS_WEBHOOK_URL` (in your GitHub secret or local env file) to the copy's URL and continue using that.
+4. The copy has a **different webhook URL** — update that person's entry in the recipients file (and the `RECIPIENTS` GitHub secret) to the copy's URL and continue using that.
 
 ## Alternatives evaluated
 

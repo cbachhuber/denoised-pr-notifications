@@ -22,15 +22,15 @@ def graphql_replying(payload: dict[str, Any]) -> Any:
 
 
 def test_search_uses_involves_without_review_requests() -> None:
-    query = build_search_query(SINCE)
+    query = build_search_query(SINCE, "alice")
 
-    assert "involves:@me" in query
+    assert "involves:alice " in query
     assert "review-requested" not in query
 
 
 def test_search_reaches_back_beyond_the_last_run_time() -> None:
     # A PR indexed late stays searchable after its events age past the last-run time.
-    assert "updated:>2026-09-08T10:50:00Z" in build_search_query(SINCE)
+    assert "updated:>2026-09-08T10:50:00Z" in build_search_query(SINCE, "alice")
 
 
 @pytest.mark.parametrize(
@@ -48,7 +48,7 @@ def test_search_reaches_back_beyond_the_last_run_time() -> None:
     ],
 )
 def test_search_timestamp_is_always_utc(case: str, moment: datetime) -> None:
-    assert "updated:>2026-09-08T10:50:00Z" in build_search_query(moment), case
+    assert "updated:>2026-09-08T10:50:00Z" in build_search_query(moment, "alice"), case
 
 
 def test_spent_rate_limit_is_distinguishable_from_a_real_failure(
@@ -58,7 +58,7 @@ def test_spent_rate_limit_is_distinguishable_from_a_real_failure(
     monkeypatch.setattr(github_api, "post_json", graphql_replying({"errors": spent}))
 
     with pytest.raises(github_api.RateLimited):
-        github_api.fetch_viewer_and_updated_pull_requests("token", SINCE)
+        github_api.fetch_updated_pull_requests("token", "alice", SINCE)
 
 
 def test_other_graphql_errors_still_fail_loudly(
@@ -69,7 +69,7 @@ def test_other_graphql_errors_still_fail_loudly(
     )
 
     with pytest.raises(RuntimeError) as caught:
-        github_api.fetch_viewer_and_updated_pull_requests("token", SINCE)
+        github_api.fetch_updated_pull_requests("token", "alice", SINCE)
     assert not isinstance(caught.value, github_api.RateLimited)
 
 
@@ -94,16 +94,11 @@ def test_parses_a_response_with_deleted_accounts_and_empty_fields(
             "nodes": [{"comments": {"nodes": [deleted_account_comment]}}]
         },
     }
-    payload = {
-        "data": {"viewer": {"login": "chris"}, "search": {"nodes": [node, None]}}
-    }
+    payload = {"data": {"search": {"nodes": [node, None]}}}
     monkeypatch.setattr(github_api, "post_json", graphql_replying(payload))
 
-    me, (pull_request,) = github_api.fetch_viewer_and_updated_pull_requests(
-        "token", SINCE
-    )
+    (pull_request,) = github_api.fetch_updated_pull_requests("token", "alice", SINCE)
 
-    assert me == "chris"
     assert pull_request.author == "ghost"
     assert pull_request.merge == github_api.Merge(
         at=datetime(2026, 9, 8, 13, 0, tzinfo=UTC), by="ghost"

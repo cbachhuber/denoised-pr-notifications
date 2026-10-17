@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -230,3 +231,62 @@ def test_writes_last_run_time_as_iso_format(tmp_path: Any) -> None:
     pr_notify.write_time_of_last_run(value, state)
 
     assert state.read_text() == value.isoformat()
+
+
+def test_accepts_wellformed_recipients(tmp_path: Any) -> None:
+    recipients = tmp_path / "recipients.toml"
+    recipients.write_text(
+        "alice = 'https://hook/a'\nbob-b = 'https://hook/b'\nemu_carol = 'https://hook/c'\n"
+    )
+
+    assert pr_notify.load_recipients(recipients) == {
+        "alice": "https://hook/a",
+        "bob-b": "https://hook/b",
+        "emu_carol": "https://hook/c",
+    }
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",
+        '"../evil" = "https://hook/a"',
+        '"a/b" = "https://hook/a"',
+        'alice = "http://hook/a"',
+        "alice = 42",
+        "[alice]\nurl = 'https://hook/a'",
+    ],
+)
+def test_reject_malformed_recipients(content: str, tmp_path: Any) -> None:
+    recipients = tmp_path / "recipients.toml"
+    recipients.write_text(content)
+
+    with pytest.raises(ValueError):
+        pr_notify.load_recipients(recipients)
+
+
+def test_each_recipient_keeps_their_own_state(tmp_path: Any) -> None:
+    shared = tmp_path / "time_of_last_run"
+    assert pr_notify.state_path_for(shared, "alice") != pr_notify.state_path_for(
+        shared, "bob"
+    )
+
+
+def test_one_failing_recipient_does_not_block_the_others(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    recipients = tmp_path / "recipients.toml"
+    recipients.write_text('alice = "https://hook/a"\nbob-b = "https://hook/b"\n')
+    served: dict[str, str] = {}
+
+    def notify(_token: str, login: str, webhook_url: str) -> None:
+        if login == "alice":
+            raise RuntimeError("dead webhook")
+        served[login] = webhook_url
+
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setattr(sys, "argv", ["pr-notify", str(recipients)])
+    monkeypatch.setattr(pr_notify, "notify", notify)
+
+    assert pr_notify.main() == 1
+    assert served == {"bob-b": "https://hook/b"}

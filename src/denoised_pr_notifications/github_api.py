@@ -12,7 +12,6 @@ from denoised_pr_notifications.config import config
 
 QUERY = """
 query($q: String!) {
-  viewer { login }
   search(query: $q, type: ISSUE, first: 50) {
     nodes {
       ... on PullRequest {
@@ -128,25 +127,25 @@ def post_json(
         return response.read(), response.headers
 
 
-def build_search_query(since: datetime) -> str:
+def build_search_query(since: datetime, login: str) -> str:
     # involves: is author OR commenter OR assignee OR mentions, and deliberately not review-requested,
     # which is what keeps CODEOWNERS team requests out of the feed.
     stamp = (
         (since - config.SEARCH_LOOKBACK).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     )
-    return f"is:pr involves:@me updated:>{stamp} sort:updated-desc"
+    return f"is:pr involves:{login} updated:>{stamp} sort:updated-desc"
 
 
 class RateLimited(RuntimeError):
     """The hourly GraphQL budget is spent. Self-healing, so a run skips rather than fails."""
 
 
-def fetch_viewer_and_updated_pull_requests(
-    token: str, since: datetime
-) -> tuple[str, list[PullRequest]]:
+def fetch_updated_pull_requests(
+    token: str, login: str, since: datetime
+) -> list[PullRequest]:
     raw, headers = post_json(
         config.GRAPHQL_URL,
-        {"query": QUERY, "variables": {"q": build_search_query(since)}},
+        {"query": QUERY, "variables": {"q": build_search_query(since, login)}},
         {"Authorization": f"Bearer {token}"},
     )
     # Only present for tokens that actually expire; logged verbatim rather than parsed.
@@ -158,6 +157,6 @@ def fetch_viewer_and_updated_pull_requests(
             raise RateLimited(errors[0].get("message", "rate limited"))
         raise RuntimeError(f"GraphQL query failed: {errors}")
     data = response["data"]
-    return data["viewer"]["login"], [
+    return [
         PullRequest.from_graphql_node(node) for node in data["search"]["nodes"] if node
     ]

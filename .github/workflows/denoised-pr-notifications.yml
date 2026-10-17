@@ -27,11 +27,14 @@ jobs:
         with:
           version: "0.12.10"
           enable-cache: true
+      - name: Write recipients file
+        run: printf '%s' "$RECIPIENTS" > "$RUNNER_TEMP/recipients.toml"
+        env:
+          RECIPIENTS: ${{ secrets.RECIPIENTS }}
       - name: Collect and notify
-        run: uv run pr-notify
+        run: uv run pr-notify "$RUNNER_TEMP/recipients.toml"
         env:
           GH_TOKEN: ${{ secrets.PR_NOTIFY_TOKEN }}
-          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
           SINCE: ${{ inputs.since }}
           # Must sit under the cached .state path, or every run cold-starts and re-posts the last hour.
           TIME_OF_LAST_RUN_FILE: .state/time_of_last_run
