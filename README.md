@@ -1,4 +1,4 @@
-# denoised-pr-notifications
+# Denoised Pull Request Notifications
 
 Sends notifications for GitHub [pull request activity that actually involves you](#whats-reported), and nothing else.
 This is useful to get rid of irrelevant (noisy) notifications in repositories with many contributors.
