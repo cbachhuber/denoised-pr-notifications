@@ -42,7 +42,7 @@ These steps target MS Teams, but you can set up any service that provides a webh
    Posting to the self-chat fails with `Call made for a thread which is not a ChatThread`, because Graph will not let a bot write there.
 
 2. **Create the Teams webhook.**
-   In Teams open the **Workflows** app and create from the template *Post to a channel when a webhook request is received*, targeting a channel, then copy the generated URL.
+   In Teams open the **Workflows** app and create from the template `Send webhook alerts to channel`, targeting a channel, then copy the generated URL.
    This must be a Workflows webhook.
 
 3. **Create the recipients file**, a TOML file that maps the GitHub login of everyone who wants notifications to their own webhook (repeat step 2 per person).
