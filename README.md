@@ -14,7 +14,7 @@ Only Slack users have access to Slack's [real-time notifications as part of Slac
 
 ## What's reported
 
-Authorship then decides how much of it is worth hearing about.
+Authorship decides how much of it is worth hearing about.
 Whether someone else's pull request was approved or merged is not your business, even when you reviewed it, so only threads you are genuinely part of survive:
 
 | Event | On a pull request you authored | On someone else's |
