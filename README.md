@@ -4,7 +4,7 @@ Sends notifications for GitHub [pull request activity that actually involves you
 This is useful to get rid of irrelevant (noisy) notifications in repositories with many contributors.
 
 Notifications are sent to a webhook, currently with MS Teams' message format.
-Supports any GitHub host, including <https://github.com/>, [GHEC, and GHES](https://learn.github.com/learning-pathways/which-enterprise).
+Supports any GitHub host, including [github.com](https://github.com/), [GHEC, and GHES](https://learn.github.com/learning-pathways/which-enterprise).
 
 ## Why this exists
 
