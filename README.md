@@ -10,7 +10,7 @@ Notifications are sent to a webhook, currently with MS Teams' message format.
 In big repos where teams, not individuals own code, [GitHub's own notification stream](https://github.com/notifications) cannot express "threads you are actually engaged with".
 Typically, one gets a huge number of irrelevant notifications, rendering GitHub's notifications useless.
 There seems to be no freely available, effective notification service for the "big repo with teams owning code" scenario, see also [evaluated alternatives](#alternatives-evaluated).
-A working alternative that only Slack users have access to are [real-time notifications as part of Slack's scheduled reminders](https://docs.github.com/en/subscriptions-and-notifications/concepts/scheduled-reminders#:~:text=can%20also%20enable-,real%2Dtime,-alerts%20for%20scheduled).
+Only Slack users have access to Slack's [real-time notifications as part of Slack's scheduled reminders](https://docs.github.com/en/subscriptions-and-notifications/concepts/scheduled-reminders#:~:text=can%20also%20enable-,real%2Dtime,-alerts%20for%20scheduled).
 
 ## What's reported
 
