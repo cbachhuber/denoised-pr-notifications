@@ -118,9 +118,9 @@ Cards sent by a flow created from a template always carry advertisement `<Name> 
 It is appended by Power Automate and is not part of the payload, so it cannot be removed from the card JSON.
 However, a copied flow has no originating template and therefore no footer.
 
-1. At [make.powerautomate.com](https://make.powerautomate.com/): **My flows** → open the flow → **Save As** → name it → **Save**.
-2. Reopen the copy from **My flows** and click **Turn On**; copies are created disabled.
-3. Turn the original off so it cannot double-post.
+1. At [make.powerautomate.com](https://make.powerautomate.com/): **My flows** → click the three dots on the flow → **Save As** → name it → **Save**.
+2. Click the three dots of the copy and click **Turn On**
+3. Turn the original off or delete it
 4. The copy has a **different webhook URL** — update that person's entry in the recipients file (and the `RECIPIENTS` GitHub secret) to the copy's URL and continue using that.
 
 ## Alternatives evaluated
