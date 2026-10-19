@@ -72,14 +72,15 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone git@github.com:cbachhuber/denoised-pr-notifications.git ~/denoised-pr-notifications
 mkdir -p ~/.config/pr-notify && chmod 700 ~/.config/pr-notify
 cat > ~/.config/pr-notify/env <<'EOF'
-# GH_HOST=my_org.ghe.com  # only needed if you're not on github.com
+GH_HOST=my_org.ghe.com  # only needed if you're not on github.com
+TEAMS_WEBHOOK_URL_FOR_ALERTS='https://...'  # Can be the same webhook from recipients.toml. Quote the URL to ensure the '&' contained in the string isn't interpreted
 EOF
 chmod 600 ~/.config/pr-notify/env
 
 crontab -e   # then append  `* * * * * $HOME/denoised-pr-notifications/run.sh` to run once per minute
 ```
 
-Cron reports failures to nobody, so check `~/.local/state/pr-notify/log` if notifications stop; the `pr-notify` command itself posts an alert to the affected recipient when GitHub rejects the token, throttled to one an hour.
+Cron reports failures to nobody, so [run.sh](./run.sh) posts a card to `TEAMS_WEBHOOK_URL_FOR_ALERTS` when a run exits non-zero, and the `pr-notify` command throttles its own alerts to one an hour.
 
 ### Running from GitHub actions
 

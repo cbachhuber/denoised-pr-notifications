@@ -10,6 +10,7 @@ ENV_FILE="${ENV_FILE:-$HOME/.config/pr-notify/env}"
 STATE_DIR="${STATE_DIR:-$HOME/.local/state/pr-notify}"
 RECIPIENTS_FILE="$HOME/.config/pr-notify/recipients.toml"
 LOG="$STATE_DIR/log"
+ALERT_STAMP="$STATE_DIR/last-wrapper-alert"
 
 mkdir -p "$STATE_DIR"
 # A line per minute grows without bound, and failures add a traceback each time.
@@ -44,4 +45,24 @@ if uv run --project "$BASE_DIR" pr-notify "$RECIPIENTS_FILE" >>"$LOG" 2>&1; then
 fi
 
 echo "$(date -Is) run failed" >>"$LOG"
+
+if [ -z "$(find "$ALERT_STAMP" -mmin -60 2>/dev/null)" ]; then
+    curl -sS -X POST "$TEAMS_WEBHOOK_URL_FOR_ALERTS" -H 'Content-Type: application/json' -d '{
+      "type": "message",
+      "attachments": [{
+        "contentType": "application/vnd.microsoft.card.adaptive",
+        "content": {
+          "type": "AdaptiveCard",
+          "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+          "version": "1.4",
+          "body": [
+            {"type": "TextBlock", "text": "PR notifier is broken", "weight": "Bolder", "size": "Medium", "color": "Attention"},
+            {"type": "TextBlock", "text": "The scheduled run exited non-zero. See ~/.local/state/pr-notify/log.", "wrap": true}
+          ]
+        }
+      }]
+    }' >>"$LOG" 2>&1
+    touch "$ALERT_STAMP"
+fi
+
 exit 1
