@@ -1,0 +1,35 @@
+name: e2e
+on:
+  pull_request:
+  workflow_dispatch:
+# Every run acts as the same recipient, so overlapping runs would see each other's pull requests.
+concurrency:
+  group: e2e
+  cancel-in-progress: false
+jobs:
+  e2e:
+    # Fork and Dependabot pull requests get no secrets; a skipped job still satisfies a required check.
+    if: >-
+      github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      # The official installer puts uv in ~/.local/bin, which is on the PATH run.sh sets for itself.
+      - run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - run: ~/.local/bin/uv run pytest -m e2e -rA --basetemp="$RUNNER_TEMP/e2e"
+        env:
+          E2E_ORG: ${{ vars.E2E_ORG }}
+          E2E_REPO: ${{ vars.E2E_REPO }}
+          E2E_TEAM: ${{ vars.E2E_TEAM }}
+          E2E_ME_LOGIN: ${{ vars.E2E_ME_LOGIN }}
+          E2E_ALICE_APP_ID: ${{ vars.E2E_ALICE_APP_ID }}
+          E2E_BOB_APP_ID: ${{ vars.E2E_BOB_APP_ID }}
+          E2E_TOKEN_ME: ${{ secrets.E2E_TOKEN_ME }}
+          E2E_ALICE_PRIVATE_KEY: ${{ secrets.E2E_ALICE_PRIVATE_KEY }}
+          E2E_BOB_PRIVATE_KEY: ${{ secrets.E2E_BOB_PRIVATE_KEY }}
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-state
+          path: ${{ runner.temp }}/e2e
