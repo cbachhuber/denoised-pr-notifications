@@ -5,7 +5,8 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
   "pyjwt[crypto]>=2.15.1",
-  "pytest"
+  "pytest",
+  "requests>=2.34.2"
 ]
 
 [project]

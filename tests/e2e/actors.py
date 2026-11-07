@@ -3,50 +3,25 @@
 from __future__ import annotations
 
 import base64
-import json
+import os
+import secrets
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import jwt
+import pytest
+import requests
 
 API = "https://api.github.com"
+BRANCH_WITHOUT_MERGE_QUEUE = "branch-without-merge-queue"
 
 
-def request(
-    method: str, path: str, token: str, body: dict[str, Any] | None = None
-) -> Any:
-    req = urllib.request.Request(
-        path if path.startswith("https://") else f"{API}{path}",
-        data=json.dumps(body).encode() if body is not None else None,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "Content-Type": "application/json",
-        },
-        method=method,
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            payload = response.read()
-    except urllib.error.HTTPError as error:
-        raise RuntimeError(
-            f"{method} {path} -> {error.code}: {error.read()[:300]!r}"
-        ) from error
-    return json.loads(payload) if payload.strip() else None
-
-
-def app_installation_token(app_id: str, private_key: str, repo: str) -> str:
-    now = int(time.time())
-    app_jwt = jwt.encode(
-        {"iat": now - 60, "exp": now + 540, "iss": app_id}, private_key, "RS256"
-    )
-    installation = request("GET", f"/repos/{repo}/installation", app_jwt)
-    return request(
-        "POST", f"/app/installations/{installation['id']}/access_tokens", app_jwt
-    )["token"]
+def require_env(name: str) -> str:
+    if not (value := os.environ.get(name)):
+        pytest.skip(f"{name} is unset; see CONTRIBUTING.md")
+    return value
 
 
 @dataclass(frozen=True)
@@ -57,8 +32,8 @@ class PullRequest:
 
 
 @dataclass(frozen=True)
-class Posted:
-    """Something an actor did, as pr-notify will see it through GraphQL."""
+class ActivitySeenByNotifier:
+    """A comment or review, identified the way pr-notify sees it through GraphQL."""
 
     url: str
     actor: str
@@ -70,12 +45,48 @@ class Actor:
     token: str
     repo: str
 
-    def call(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
-        return request(method, path, self.token, body)
+    @classmethod
+    def from_app(cls, name: str, app_id: str, private_key: str, repo: str) -> Actor:
+        now = int(time.time())
+        app = cls(
+            name,
+            jwt.encode(
+                {"iat": now - 60, "exp": now + 540, "iss": app_id},
+                private_key,
+                "RS256",
+            ),
+            repo,
+        )
+        installation = app.call_api("GET", f"/repos/{repo}/installation")
+        token = app.call_api(
+            "POST", f"/app/installations/{installation['id']}/access_tokens"
+        )["token"]
+        return cls(name, token, repo)
 
-    def as_seen_by_graphql(self, node_id: str) -> Posted:
+    def call_api(
+        self, method: str, path: str, body: dict[str, Any] | None = None
+    ) -> Any:
+        response = requests.request(
+            method,
+            f"{API}{path}",
+            json=body,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=30,
+        )
+        if not response.ok:
+            # GitHub explains its errors in the body, which raise_for_status() would drop.
+            raise requests.HTTPError(
+                f"{method} {path} -> {response.status_code}: {response.text[:300]}",
+                response=response,
+            )
+        return response.json() if response.content else None
+
+    def fetch_activity_seen_by_notifier(self, node_id: str) -> ActivitySeenByNotifier:
         # GraphQL drops the "[bot]" suffix REST shows for apps, and pr-notify only ever sees GraphQL.
-        node = self.call(
+        node = self.call_api(
             "POST",
             "/graphql",
             {
@@ -85,20 +96,20 @@ class Actor:
                 "variables": {"id": node_id},
             },
         )["data"]["node"]
-        return Posted(url=node["url"], actor=node["author"]["login"])
+        return ActivitySeenByNotifier(url=node["url"], actor=node["author"]["login"])
 
     def open_pull_request(
         self, branch: str, base: str, title: str, body: str
     ) -> PullRequest:
-        base_sha = self.call("GET", f"/repos/{self.repo}/git/ref/heads/{base}")[
+        base_sha = self.call_api("GET", f"/repos/{self.repo}/git/ref/heads/{base}")[
             "object"
         ]["sha"]
-        self.call(
+        self.call_api(
             "POST",
             f"/repos/{self.repo}/git/refs",
             {"ref": f"refs/heads/{branch}", "sha": base_sha},
         )
-        self.call(
+        self.call_api(
             "PUT",
             f"/repos/{self.repo}/contents/{branch}.md",
             {
@@ -107,31 +118,80 @@ class Actor:
                 "branch": branch,
             },
         )
-        pull = self.call(
+        pull = self.call_api(
             "POST",
             f"/repos/{self.repo}/pulls",
             {"title": title, "head": branch, "base": base, "body": body},
         )
-        self.call(
-            "POST",
-            f"/repos/{self.repo}/issues/{pull['number']}/labels",
-            {"labels": ["e2e"]},
-        )
         return PullRequest(number=pull["number"], url=pull["html_url"], branch=branch)
 
-    def comment(self, pull: PullRequest, body: str) -> Posted:
-        comment = self.call(
+    def post_comment(self, pull: PullRequest, body: str) -> ActivitySeenByNotifier:
+        comment = self.call_api(
             "POST", f"/repos/{self.repo}/issues/{pull.number}/comments", {"body": body}
         )
-        return self.as_seen_by_graphql(comment["node_id"])
+        return self.fetch_activity_seen_by_notifier(comment["node_id"])
 
-    def close(self, pull: PullRequest) -> None:
-        self.call(
+    def close_pull_request(self, pull: PullRequest) -> None:
+        self.call_api(
             "PATCH", f"/repos/{self.repo}/pulls/{pull.number}", {"state": "closed"}
         )
         try:
-            self.call("DELETE", f"/repos/{self.repo}/git/refs/heads/{pull.branch}")
-        except RuntimeError as error:
+            self.call_api("DELETE", f"/repos/{self.repo}/git/refs/heads/{pull.branch}")
+        except requests.HTTPError as error:
             # Already gone when the repository deletes merged branches itself.
-            if "-> 422" not in str(error):
+            if error.response is None or error.response.status_code != 422:
                 raise
+
+
+@dataclass(frozen=True)
+class RunParticipants:
+    """Everyone acting in one test run, and how that run identifies itself on the pull requests it opens."""
+
+    me: Actor
+    alice: Actor
+    bob: Actor
+    run_id: str
+    run_link: str
+
+    @classmethod
+    def from_environment(cls) -> RunParticipants:
+        repo = f"{require_env('E2E_ORG')}/{require_env('E2E_REPO')}"
+
+        def create_app_actor(name: str) -> Actor:
+            key = (
+                os.environ.get(f"E2E_{name}_PRIVATE_KEY")
+                or Path(
+                    os.path.expandvars(require_env(f"E2E_{name}_PRIVATE_KEY_FILE"))
+                ).read_text()
+            )
+            return Actor.from_app(
+                name.lower(), require_env(f"E2E_{name}_APP_ID"), key, repo
+            )
+
+        if run_id := os.environ.get("GITHUB_RUN_ID"):
+            server, origin = (
+                os.environ["GITHUB_SERVER_URL"],
+                os.environ["GITHUB_REPOSITORY"],
+            )
+            run_link = f"{server}/{origin}/actions/runs/{run_id}"
+            run_id = f"{run_id}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}"
+        else:
+            run_id = f"local-{secrets.token_hex(3)}"
+            run_link = f"local run {run_id}"
+        return cls(
+            me=Actor(require_env("E2E_ME_LOGIN"), require_env("E2E_TOKEN_ME"), repo),
+            alice=create_app_actor("ALICE"),
+            bob=create_app_actor("BOB"),
+            run_id=run_id,
+            run_link=run_link,
+        )
+
+    def open_pull_request(
+        self, author: Actor, scenario: str, base: str = BRANCH_WITHOUT_MERGE_QUEUE
+    ) -> PullRequest:
+        return author.open_pull_request(
+            branch=f"{self.run_id}/{scenario}",
+            base=base,
+            title=f"[{self.run_id}] {scenario}",
+            body=f"Opened by {self.run_link}",
+        )

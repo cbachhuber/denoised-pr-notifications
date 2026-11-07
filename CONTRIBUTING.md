@@ -52,6 +52,7 @@ As your personal account:
 2. Invite the machine account as a member under **People → Invite member**, and accept the invitation as the machine account.
 3. Create a visible team under **Teams → New team** and add the machine account to it.
 4. Create a **public** repository in the organization with **Add a README** ticked, so that `main` exists.
+   Keep it dedicated to these tests: each run closes every pull request there that has been open for over an hour.
 5. Under the repository's **Settings → Collaborators and teams**, give the team the **Write** role.
 
 ### 3. GitHub Apps
@@ -72,6 +73,7 @@ Repeat for `alice` and `bob` under **Organization settings → Developer setting
 
 ### 4. Local configuration
 
+Only needed to run the end-to-end tests locally; CI reads the [secrets and variables](#6-ci-secrets-and-variables) instead.
 Create `~/.config/pr-notify/e2e.env` with `chmod 600`, entering the token with an editor to keep it out of the shell history:
 
 ```bash
@@ -88,12 +90,12 @@ E2E_BOB_PRIVATE_KEY_FILE=$HOME/.config/pr-notify/e2e-bob.pem
 
 ### 5. Repository bootstrap
 
-As your personal account, logged in with `gh auth login`, run the idempotent bootstrap once.
-It creates the `e2e` label, the unprotected `e2e-direct` branch, the merge queue ruleset on `main`, and the test repository's workflows.
+As your personal account, logged in with `gh auth login`, run the idempotent [set_up_repository.py](tests/e2e/set_up_repository.py) once.
+It creates the `branch-without-merge-queue`, the merge queue ruleset on `main`, and the test repository's workflows.
 
 ```bash
 set -a; . ~/.config/pr-notify/e2e.env; set +a
-uv run scripts/e2e_bootstrap.py
+uv run tests/e2e/set_up_repository.py
 ```
 
 ### 6. CI secrets and variables

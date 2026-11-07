@@ -15,9 +15,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
-      # The official installer puts uv in ~/.local/bin, which is on the PATH run.sh sets for itself.
-      - run: curl -LsSf https://astral.sh/uv/install.sh | sh
-      - run: ~/.local/bin/uv run pytest -m e2e -rA --basetemp="$RUNNER_TEMP/e2e"
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+      # run.sh resets PATH to what cron would have, which includes ~/.local/bin but not the action's tool cache.
+      - run: mkdir -p ~/.local/bin && ln -s "$(command -v uv)" ~/.local/bin/uv
+      - run: uv run pytest -m e2e -rA --basetemp="$RUNNER_TEMP/e2e"
         env:
           E2E_ORG: ${{ vars.E2E_ORG }}
           E2E_REPO: ${{ vars.E2E_REPO }}

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import json
 import os
 import re
-import secrets
 import ssl
 import subprocess
 import threading
@@ -19,8 +19,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from actors import Actor, app_installation_token, request
-from scenarios import KNOWN_GAPS, SCENARIOS, Cast, Expectation
+from actors import Actor, RunParticipants
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
+from scenarios import KNOWN_GAPS, SCENARIOS, Expectation
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTROL_DEADLINE = timedelta(minutes=3)
@@ -63,15 +67,15 @@ class Sink:
     cards: list[Card] = field(default_factory=list)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def url(self, path: str) -> str:
+    def build_url(self, path: str) -> str:
         return f"https://localhost:{self.port}{path}"
 
-    def received(self, path: str) -> list[Card]:
+    def collect_cards(self, path: str) -> list[Card]:
         with self.lock:
             return [card for card in self.cards if card.path == path]
 
 
-def _system_ca_file() -> Path:
+def find_system_ca_file() -> Path:
     paths = ssl.get_default_verify_paths()
     candidates = [
         os.environ.get("SSL_CERT_FILE"),
@@ -92,30 +96,62 @@ def tls(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path, Path]:
     """Self-signed localhost certificate, its key, and a CA bundle trusting it alongside the system CAs."""
     folder = tmp_path_factory.mktemp("tls")
     cert, key, bundle = folder / "cert.pem", folder / "key.pem", folder / "bundle.pem"
-    subprocess.run(
-        [
-            "openssl",
-            "req",
-            "-x509",
-            "-newkey",
-            "rsa:2048",
-            "-nodes",
-            "-days",
-            "1",
-            "-subj",
-            "/CN=localhost",
-            "-addext",
-            "subjectAltName=DNS:localhost,IP:127.0.0.1",
-            "-keyout",
-            str(key),
-            "-out",
-            str(cert),
-        ],
-        check=True,
-        capture_output=True,
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    public_key = private_key.public_key()
+    localhost = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+    now = datetime.now(UTC)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(localhost)
+        .issuer_name(localhost)
+        .public_key(public_key)
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=5))
+        .not_valid_after(now + timedelta(days=1))
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName("localhost"),
+                    x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+                ]
+            ),
+            critical=False,
+        )
+        # Python's default context verifies strictly, which wants a well-formed CA, not a bare leaf.
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                key_cert_sign=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                crl_sign=False,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(public_key), critical=False
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(public_key),
+            critical=False,
+        )
+        .sign(private_key, hashes.SHA256())
+    )
+    cert.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+    key.write_bytes(
+        private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
     )
     # Replacing rather than extending the system CAs would break the calls to github.com.
-    bundle.write_text(_system_ca_file().read_text() + cert.read_text())
+    bundle.write_text(find_system_ca_file().read_text() + cert.read_text())
     return cert, key, bundle
 
 
@@ -185,7 +221,7 @@ class Notifier:
             "ENV_FILE": str(self.folder / "absent-env"),
             "STATE_DIR": str(self.state_dir),
             "RECIPIENTS_FILE": str(recipients_file),
-            "TEAMS_WEBHOOK_URL_FOR_ALERTS": self.sink.url("/alerts"),
+            "TEAMS_WEBHOOK_URL_FOR_ALERTS": self.sink.build_url("/alerts"),
             "POST_SPACING": "0",
             "SSL_CERT_FILE": str(self.ca_bundle),
             "CURL_CA_BUNDLE": str(self.ca_bundle),
@@ -207,99 +243,75 @@ def notifier(tmp_path: Path, sink: Sink, tls: tuple[Path, Path, Path]) -> Notifi
 
 
 @dataclass(frozen=True)
-class World:
+class DeliveredNotifications:
+    """What each scenario expected, and every card the notifier actually delivered for the whole run."""
+
     expectations: dict[str, Expectation]
     cards: list[Card]
     log: str
 
 
-def _env(name: str) -> str:
-    if not (value := os.environ.get(name)):
-        pytest.skip(f"{name} is unset; see CONTRIBUTING.md")
-    return value
-
-
-def _cast(repo: str) -> Cast:
-    me = Actor(_env("E2E_ME_LOGIN"), _env("E2E_TOKEN_ME"), repo)
-
-    def app(name: str) -> Actor:
-        key = (
-            os.environ.get(f"E2E_{name}_PRIVATE_KEY")
-            or Path(
-                os.path.expandvars(_env(f"E2E_{name}_PRIVATE_KEY_FILE"))
-            ).read_text()
-        )
-        token = app_installation_token(_env(f"E2E_{name}_APP_ID"), key, repo)
-        return Actor(name.lower(), token, repo)
-
-    if run_id := os.environ.get("GITHUB_RUN_ID"):
-        server, origin = (
-            os.environ["GITHUB_SERVER_URL"],
-            os.environ["GITHUB_REPOSITORY"],
-        )
-        run_link = f"{server}/{origin}/actions/runs/{run_id}"
-        run_id = f"{run_id}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}"
-    else:
-        run_id = f"local-{secrets.token_hex(3)}"
-        run_link = f"local run {run_id}"
-    return Cast(me, app("ALICE"), app("BOB"), run_id, run_link)
-
-
-def _close_stale_pull_requests(me: Actor) -> None:
+def close_stale_pull_requests(me: Actor) -> None:
     """Leftovers from crashed runs would crowd the 50 pull requests pr-notify looks at."""
     cutoff = datetime.now(UTC) - STALE_AFTER
-    stale = request(
-        "GET",
-        f"/repos/{me.repo}/issues?labels=e2e&state=open&per_page=100",
-        me.token,
-    )
-    for issue in stale:
-        if datetime.fromisoformat(issue["created_at"]) < cutoff:
-            me.call(
+    for pull in me.call_api("GET", f"/repos/{me.repo}/pulls?state=open&per_page=100"):
+        if datetime.fromisoformat(pull["created_at"]) < cutoff:
+            me.call_api(
                 "PATCH",
-                f"/repos/{me.repo}/pulls/{issue['number']}",
+                f"/repos/{me.repo}/pulls/{pull['number']}",
                 {"state": "closed"},
             )
 
 
 @pytest.fixture(scope="session")
-def world(
-    tmp_path_factory: pytest.TempPathFactory, tls: tuple[Path, Path, Path]
-) -> Iterator[World]:
-    """Arrange every scenario, then run run.sh like cron would until the expected cards arrive."""
-    cast = _cast(f"{_env('E2E_ORG')}/{_env('E2E_REPO')}")
-    _close_stale_pull_requests(cast.me)
+def delivered_notifications(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+    tls: tuple[Path, Path, Path],
+) -> Iterator[DeliveredNotifications]:
+    """Arrange the selected scenarios, then run run.sh like cron would until the expected cards arrive."""
+    # Only the scenarios this session will assert on, so `-k` saves the GitHub round trips too.
+    selected = [
+        callspec.params["scenario"]
+        for item in request.session.items
+        if (callspec := getattr(item, "callspec", None))
+        and "scenario" in callspec.params
+    ]
+    run = RunParticipants.from_environment()
+    close_stale_pull_requests(run.me)
     # Allows for this machine's clock running ahead of GitHub's.
     since = datetime.now(UTC) - timedelta(minutes=1)
     expectations: dict[str, Expectation] = {}
     with serve_sink(tls) as sink:
         try:
-            for name, scenario in SCENARIOS.items():
-                expectations[name] = scenario(cast)
-            notifier = Notifier(tmp_path_factory.mktemp("world"), sink, tls[2])
-            recipients = {cast.me.name: sink.url("/me")}
+            for name in selected:
+                expectations[name] = SCENARIOS[name](run)
+            notifier = Notifier(tmp_path_factory.mktemp("notifier"), sink, tls[2])
+            recipients = {run.me.name: sink.build_url("/me")}
             expected = {
-                posted.url
+                activity.url
                 for name, expectation in expectations.items()
                 if name not in KNOWN_GAPS
-                for posted in expectation.reported
+                for activity in expectation.reported
             }
 
-            def run(**extra_env: str) -> None:
-                result = notifier.run(cast.me.token, recipients, **extra_env)
+            def run_notifier(**extra_env: str) -> None:
+                result = notifier.run(run.me.token, recipients, **extra_env)
                 assert result.returncode == 0, notifier.log
 
             # Only the first run is told where to start; the rest rely on the stored state, as under cron.
-            run(SINCE=since.isoformat())
+            run_notifier(SINCE=since.isoformat())
             deadline = datetime.now(UTC) + CONTROL_DEADLINE
-            while not expected <= {card.link for card in sink.received("/me")}:
+            while not expected <= {card.link for card in sink.collect_cards("/me")}:
                 if datetime.now(UTC) > deadline:
                     break
                 time.sleep(POLL_INTERVAL_SECONDS)
-                run()
+                run_notifier()
             time.sleep(QUIET_PERIOD_SECONDS)
-            run()
-            yield World(expectations, sink.received("/me"), notifier.log)
+            run_notifier()
+            yield DeliveredNotifications(
+                expectations, sink.collect_cards("/me"), notifier.log
+            )
         finally:
             for expectation in expectations.values():
-                cast.me.close(expectation.pull)
+                run.me.close_pull_request(expectation.pull)
