@@ -10,6 +10,9 @@ from typing import Final
 
 _STATE_FOLDER: Final = Path.home() / ".local/pr-notify/state"
 _SERVER_URL: Final = os.environ.get("GITHUB_SERVER_URL") or "https://github.com"
+_TIME_OF_LAST_RUN_FILE: Final = Path(
+    os.environ.get("TIME_OF_LAST_RUN_FILE", _STATE_FOLDER / "time_of_last_run")
+)
 
 
 # Actions sets these to whichever host the workflow runs on, so Enterprise needs no configuration.
@@ -23,9 +26,7 @@ class Config:
     TOKEN_SETTINGS_URL: str = (
         os.environ.get("TOKEN_SETTINGS_URL") or f"{_SERVER_URL}/settings/tokens"
     )
-    TIME_OF_LAST_RUN_FILE: Path = Path(
-        os.environ.get("TIME_OF_LAST_RUN_FILE", _STATE_FOLDER / "time_of_last_run")
-    )
+    TIME_OF_LAST_RUN_FILE: Path = _TIME_OF_LAST_RUN_FILE
     # Suppresses only the review summary; inline comments from the same author are still worth reading.
     IGNORED_AUTHORS: frozenset[str] = frozenset(
         os.environ.get("IGNORED_AUTHORS", "github-actions").split(",")
@@ -40,7 +41,8 @@ class Config:
     # the event window therefore reach back past it, and NOTIFICATION_LOG stops the overlap repeating itself.
     SEARCH_LOOKBACK: timedelta = timedelta(minutes=10)
     SEEN_RETENTION: timedelta = timedelta(hours=2)
-    NOTIFICATION_LOG: Path = _STATE_FOLDER / "seen"
+    # Beside the last-run file, so the Actions cache and run.sh's STATE_DIR keep both or neither.
+    NOTIFICATION_LOG: Path = _TIME_OF_LAST_RUN_FILE.parent / "seen"
     # Each post starts its own Power Automate run and those race, so cards are spaced rather than fired together.
     POST_SPACING: float = float(os.environ.get("POST_SPACING", "1.5"))
     # Minimum interval between alert posts
