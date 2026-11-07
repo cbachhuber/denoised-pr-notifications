@@ -56,7 +56,7 @@ def my_own_comment_on_my_pr(run: RunParticipants) -> Expectation:
 
 @known_gap(
     "GitHub search does not count a new comment towards involves: until the pull request itself is "
-    "updated, so pr-notify never fetches the conversation I joined"
+    "updated, so pr-notify never fetches the conversation I joined (#4)"
 )
 def conversation_i_joined_late(run: RunParticipants) -> Expectation:
     pull = run.open_pull_request(run.alice, "conversation_i_joined_late")
