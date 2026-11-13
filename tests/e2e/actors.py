@@ -270,6 +270,13 @@ class Actor:
         )["data"]["repository"]["pullRequest"]
         return ActivitySeenByNotifier(url=node["url"], actor=node["mergedBy"]["login"])
 
+    def assign(self, pull: PullRequest, login: str) -> None:
+        self.call_api(
+            "POST",
+            f"/repos/{self.repo}/issues/{pull.number}/assignees",
+            {"assignees": [login]},
+        )
+
     def merge_pull_request(self, pull: PullRequest) -> ActivitySeenByNotifier:
         def try_merge() -> bool:
             try:
