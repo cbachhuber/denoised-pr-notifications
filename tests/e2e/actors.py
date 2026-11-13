@@ -220,6 +220,18 @@ class Actor:
             f"no bot comment on {pull.url} after the bot-comment workflow"
         )
 
+    def dismiss_reviews(self, pull: PullRequest, message: str) -> None:
+        reviews = self.call_api(
+            "GET", f"/repos/{self.repo}/pulls/{pull.number}/reviews"
+        )
+        for review in reviews:
+            if review["state"] in ("APPROVED", "CHANGES_REQUESTED"):
+                self.call_api(
+                    "PUT",
+                    f"/repos/{self.repo}/pulls/{pull.number}/reviews/{review['id']}/dismissals",
+                    {"message": message},
+                )
+
     def close_pull_request(self, pull: PullRequest) -> None:
         self.call_api(
             "PATCH", f"/repos/{self.repo}/pulls/{pull.number}", {"state": "closed"}
