@@ -152,6 +152,16 @@ class Actor:
         )
         return self.fetch_activity_seen_by_notifier(comment["node_id"])
 
+    def submit_review(
+        self, pull: PullRequest, event: str, body: str = ""
+    ) -> ActivitySeenByNotifier:
+        review = self.call_api(
+            "POST",
+            f"/repos/{self.repo}/pulls/{pull.number}/reviews",
+            {"event": event, "body": body},
+        )
+        return self.fetch_activity_seen_by_notifier(review["node_id"])
+
     def dispatch_bot_comment(
         self, pull: PullRequest, body: str
     ) -> ActivitySeenByNotifier:

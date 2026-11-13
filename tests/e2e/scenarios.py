@@ -67,6 +67,11 @@ def inline_comment_on_my_pr(run: RunParticipants) -> Expectation:
     )
 
 
+def approval_of_my_pr(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.me, "approval_of_my_pr")
+    return Expectation(pull, [run.alice.submit_review(pull, "APPROVE")])
+
+
 @known_gap(
     "GitHub search does not count a new comment towards involves: until the pull request itself is "
     "updated, so pr-notify never fetches the conversation I joined (#4)"
