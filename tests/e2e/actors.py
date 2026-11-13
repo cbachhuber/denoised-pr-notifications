@@ -19,6 +19,7 @@ API = "https://api.github.com"
 BRANCH_WITHOUT_MERGE_QUEUE = "branch-without-merge-queue"
 BOT_COMMENT_TIMEOUT_SECONDS = 180
 MERGE_QUEUE_TIMEOUT_SECONDS = 300
+MERGEABLE_TIMEOUT_SECONDS = 60
 
 
 def wait_until(description: str, is_done: Callable[[], bool], seconds: int) -> None:
@@ -270,7 +271,21 @@ class Actor:
         return ActivitySeenByNotifier(url=node["url"], actor=node["mergedBy"]["login"])
 
     def merge_pull_request(self, pull: PullRequest) -> ActivitySeenByNotifier:
-        self.call_api("PUT", f"/repos/{self.repo}/pulls/{pull.number}/merge", {})
+        def try_merge() -> bool:
+            try:
+                self.call_api(
+                    "PUT", f"/repos/{self.repo}/pulls/{pull.number}/merge", {}
+                )
+            except requests.HTTPError as error:
+                # A fresh pull request is refused with 405 while GitHub still computes its mergeability.
+                if error.response is None or error.response.status_code != 405:
+                    raise
+                return False
+            return True
+
+        wait_until(
+            "the pull request to be mergeable", try_merge, MERGEABLE_TIMEOUT_SECONDS
+        )
         return self.fetch_merge_seen_by_notifier(pull)
 
     def merge_through_queue(self, pull: PullRequest) -> ActivitySeenByNotifier:
