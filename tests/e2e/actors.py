@@ -162,6 +162,35 @@ class Actor:
         )
         return self.fetch_activity_seen_by_notifier(review["node_id"])
 
+    def submit_bodiless_review_with_inline_comment(
+        self, pull: PullRequest, inline_body: str
+    ) -> ActivitySeenByNotifier:
+        """Return the inline comment; the review wrapping it has no body of its own."""
+        head_sha = self.call_api("GET", f"/repos/{self.repo}/pulls/{pull.number}")[
+            "head"
+        ]["sha"]
+        review = self.call_api(
+            "POST",
+            f"/repos/{self.repo}/pulls/{pull.number}/reviews",
+            {
+                "event": "COMMENT",
+                "commit_id": head_sha,
+                "comments": [
+                    {
+                        "path": f"{pull.branch}.md",
+                        "line": 1,
+                        "side": "RIGHT",
+                        "body": inline_body,
+                    }
+                ],
+            },
+        )
+        (comment,) = self.call_api(
+            "GET",
+            f"/repos/{self.repo}/pulls/{pull.number}/reviews/{review['id']}/comments",
+        )
+        return self.fetch_activity_seen_by_notifier(comment["node_id"])
+
     def dispatch_bot_comment(
         self, pull: PullRequest, body: str
     ) -> ActivitySeenByNotifier:
