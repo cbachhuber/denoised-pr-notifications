@@ -6,6 +6,7 @@ import base64
 import os
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,16 @@ import requests
 API = "https://api.github.com"
 BRANCH_WITHOUT_MERGE_QUEUE = "branch-without-merge-queue"
 BOT_COMMENT_TIMEOUT_SECONDS = 180
+MERGE_QUEUE_TIMEOUT_SECONDS = 300
+
+
+def wait_until(description: str, is_done: Callable[[], bool], seconds: int) -> None:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if is_done():
+            return
+        time.sleep(5)
+    raise TimeoutError(f"gave up waiting for {description}")
 
 
 def require_env(name: str) -> str:
@@ -231,6 +242,70 @@ class Actor:
                     f"/repos/{self.repo}/pulls/{pull.number}/reviews/{review['id']}/dismissals",
                     {"message": message},
                 )
+
+    def reply_to_inline_comment(
+        self, pull: PullRequest, thread: ActivitySeenByNotifier, body: str
+    ) -> ActivitySeenByNotifier:
+        # The URL ends in #discussion_r<id>, which is the id the replies endpoint wants.
+        comment_id = thread.url.rsplit("#discussion_r", 1)[1]
+        reply = self.call_api(
+            "POST",
+            f"/repos/{self.repo}/pulls/{pull.number}/comments/{comment_id}/replies",
+            {"body": body},
+        )
+        return self.fetch_activity_seen_by_notifier(reply["node_id"])
+
+    def fetch_merge_seen_by_notifier(self, pull: PullRequest) -> ActivitySeenByNotifier:
+        owner, name = self.repo.split("/")
+        node = self.call_api(
+            "POST",
+            "/graphql",
+            {
+                "query": "query($owner: String!, $name: String!, $number: Int!) {"
+                " repository(owner: $owner, name: $name) { pullRequest(number: $number) {"
+                " url mergedBy { login } } } }",
+                "variables": {"owner": owner, "name": name, "number": pull.number},
+            },
+        )["data"]["repository"]["pullRequest"]
+        return ActivitySeenByNotifier(url=node["url"], actor=node["mergedBy"]["login"])
+
+    def merge_pull_request(self, pull: PullRequest) -> ActivitySeenByNotifier:
+        self.call_api("PUT", f"/repos/{self.repo}/pulls/{pull.number}/merge", {})
+        return self.fetch_merge_seen_by_notifier(pull)
+
+    def merge_through_queue(self, pull: PullRequest) -> ActivitySeenByNotifier:
+        """Enqueue once the required check has passed, and wait for the queue to merge it."""
+        details = self.call_api("GET", f"/repos/{self.repo}/pulls/{pull.number}")
+
+        def has_passed_check() -> bool:
+            runs = self.call_api(
+                "GET", f"/repos/{self.repo}/commits/{details['head']['sha']}/check-runs"
+            )["check_runs"]
+            passed = any(
+                run["name"] == "check" and run["conclusion"] == "success"
+                for run in runs
+            )
+            return passed
+
+        wait_until("the required check", has_passed_check, MERGE_QUEUE_TIMEOUT_SECONDS)
+        self.call_api(
+            "POST",
+            "/graphql",
+            {
+                "query": "mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id})"
+                " { mergeQueueEntry { id } } }",
+                "variables": {"id": details["node_id"]},
+            },
+        )
+
+        def is_merged() -> bool:
+            merged = self.call_api("GET", f"/repos/{self.repo}/pulls/{pull.number}")[
+                "merged"
+            ]
+            return merged
+
+        wait_until("the merge queue", is_merged, MERGE_QUEUE_TIMEOUT_SECONDS)
+        return self.fetch_merge_seen_by_notifier(pull)
 
     def close_pull_request(self, pull: PullRequest) -> None:
         self.call_api(

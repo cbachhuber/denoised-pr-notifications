@@ -94,6 +94,28 @@ def dismissed_approval_of_my_pr(run: RunParticipants) -> Expectation:
     return Expectation(pull, [])
 
 
+def my_pr_merged_by_someone_else(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.me, "my_pr_merged_by_someone_else")
+    return Expectation(pull, [run.alice.merge_pull_request(pull)])
+
+
+def my_pr_merged_through_merge_queue(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(
+        run.me, "my_pr_merged_through_merge_queue", base="main"
+    )
+    return Expectation(pull, [run.me.merge_through_queue(pull)])
+
+
+def inline_thread_i_joined_late(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.alice, "inline_thread_i_joined_late")
+    opening = run.bob.post_inline_comment(pull, "Before you got here")
+    wait_for_next_second()
+    run.me.reply_to_inline_comment(pull, opening, "Joining in")
+    wait_for_next_second()
+    reply = run.bob.reply_to_inline_comment(pull, opening, "After you joined")
+    return Expectation(pull, [reply])
+
+
 @known_gap(
     "GitHub search does not count a new comment towards involves: until the pull request itself is "
     "updated, so pr-notify never fetches the conversation I joined (#4)"
