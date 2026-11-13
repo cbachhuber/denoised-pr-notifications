@@ -54,6 +54,12 @@ def my_own_comment_on_my_pr(run: RunParticipants) -> Expectation:
     return Expectation(pull, [])
 
 
+def bot_comment_on_my_pr(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.me, "bot_comment_on_my_pr")
+    run.me.dispatch_bot_comment(pull, "A comment from CI")
+    return Expectation(pull, [])
+
+
 @known_gap(
     "GitHub search does not count a new comment towards involves: until the pull request itself is "
     "updated, so pr-notify never fetches the conversation I joined (#4)"

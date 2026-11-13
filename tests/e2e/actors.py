@@ -16,6 +16,7 @@ import requests
 
 API = "https://api.github.com"
 BRANCH_WITHOUT_MERGE_QUEUE = "branch-without-merge-queue"
+BOT_COMMENT_TIMEOUT_SECONDS = 180
 
 
 def require_env(name: str) -> str:
@@ -130,6 +131,35 @@ class Actor:
             "POST", f"/repos/{self.repo}/issues/{pull.number}/comments", {"body": body}
         )
         return self.fetch_activity_seen_by_notifier(comment["node_id"])
+
+    def dispatch_bot_comment(
+        self, pull: PullRequest, body: str
+    ) -> ActivitySeenByNotifier:
+        """Have github-actions comment through the test repository's bot-comment workflow, and wait for it."""
+        default_branch = self.call_api("GET", f"/repos/{self.repo}")["default_branch"]
+        self.call_api(
+            "POST",
+            f"/repos/{self.repo}/actions/workflows/bot-comment.yml/dispatches",
+            {"ref": default_branch, "inputs": {"pr": str(pull.number), "body": body}},
+        )
+        deadline = time.monotonic() + BOT_COMMENT_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            comments = self.call_api(
+                "GET", f"/repos/{self.repo}/issues/{pull.number}/comments"
+            )
+            if comment := next(
+                (
+                    c
+                    for c in comments
+                    if c["user"]["login"] == "github-actions[bot]" and c["body"] == body
+                ),
+                None,
+            ):
+                return self.fetch_activity_seen_by_notifier(comment["node_id"])
+            time.sleep(5)
+        raise TimeoutError(
+            f"no bot comment on {pull.url} after the bot-comment workflow"
+        )
 
     def close_pull_request(self, pull: PullRequest) -> None:
         self.call_api(
