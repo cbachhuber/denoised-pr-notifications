@@ -132,6 +132,26 @@ class Actor:
         )
         return self.fetch_activity_seen_by_notifier(comment["node_id"])
 
+    def post_inline_comment(
+        self, pull: PullRequest, body: str
+    ) -> ActivitySeenByNotifier:
+        """Comment on the first line of the file the pull request adds."""
+        head_sha = self.call_api("GET", f"/repos/{self.repo}/pulls/{pull.number}")[
+            "head"
+        ]["sha"]
+        comment = self.call_api(
+            "POST",
+            f"/repos/{self.repo}/pulls/{pull.number}/comments",
+            {
+                "body": body,
+                "commit_id": head_sha,
+                "path": f"{pull.branch}.md",
+                "line": 1,
+                "side": "RIGHT",
+            },
+        )
+        return self.fetch_activity_seen_by_notifier(comment["node_id"])
+
     def dispatch_bot_comment(
         self, pull: PullRequest, body: str
     ) -> ActivitySeenByNotifier:
