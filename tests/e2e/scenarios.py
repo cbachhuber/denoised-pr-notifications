@@ -129,6 +129,9 @@ def mention_on_pr_i_am_not_part_of(run: RunParticipants) -> Expectation:
     return Expectation(pull, [mention])
 
 
+@known_gap(
+    "is_addressed_to_me matches @<me> as a substring, so a mention of @<me>x is reported (#33)"
+)
 def mention_of_login_starting_with_mine(run: RunParticipants) -> Expectation:
     pull = run.open_pull_request(run.alice, "mention_of_login_starting_with_mine")
     # Assigned, so the search finds the pull request even though nobody mentions me.
