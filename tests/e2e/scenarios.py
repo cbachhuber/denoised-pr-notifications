@@ -86,6 +86,14 @@ def bodiless_review_wrapping_inline_comments(run: RunParticipants) -> Expectatio
     return Expectation(pull, [comment])
 
 
+def dismissed_approval_of_my_pr(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.me, "dismissed_approval_of_my_pr")
+    run.alice.submit_review(pull, "APPROVE")
+    run.me.dismiss_reviews(pull, "Dismissed by the test")
+    # The notifier first looks after the dismissal, so it never sees the approval as such.
+    return Expectation(pull, [])
+
+
 @known_gap(
     "GitHub search does not count a new comment towards involves: until the pull request itself is "
     "updated, so pr-notify never fetches the conversation I joined (#4)"
