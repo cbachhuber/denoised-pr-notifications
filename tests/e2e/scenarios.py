@@ -116,6 +116,30 @@ def inline_thread_i_joined_late(run: RunParticipants) -> Expectation:
     return Expectation(pull, [reply])
 
 
+def approval_and_merge_of_someone_elses_pr(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.alice, "approval_and_merge_of_someone_elses_pr")
+    run.bob.submit_review(pull, "APPROVE")
+    run.me.merge_pull_request(pull)
+    return Expectation(pull, [])
+
+
+def mention_on_pr_i_am_not_part_of(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.alice, "mention_on_pr_i_am_not_part_of")
+    mention = run.bob.post_comment(pull, f"@{run.me.name} what do you think?")
+    return Expectation(pull, [mention])
+
+
+@known_gap(
+    "is_addressed_to_me matches @<me> as a substring, so a mention of @<me>x is reported (#33)"
+)
+def mention_of_login_starting_with_mine(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.alice, "mention_of_login_starting_with_mine")
+    # Assigned, so the search finds the pull request even though nobody mentions me.
+    run.me.assign(pull, run.me.name)
+    run.bob.post_comment(pull, f"@{run.me.name}x what do you think?")
+    return Expectation(pull, [])
+
+
 @known_gap(
     "GitHub search does not count a new comment towards involves: until the pull request itself is "
     "updated, so pr-notify never fetches the conversation I joined (#4)"
