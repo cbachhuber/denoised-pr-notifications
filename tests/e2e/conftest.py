@@ -263,6 +263,21 @@ def close_stale_pull_requests(me: Actor) -> None:
             )
 
 
+def write_step_summary(repo: str, expectations: dict[str, Expectation]) -> None:
+    """Lists the scenarios' pull requests on the workflow run page; a no-op outside GitHub Actions."""
+    if not (summary := os.environ.get("GITHUB_STEP_SUMMARY")):
+        return
+    rows = "".join(
+        f"| {name} | [#{expectation.pull.number}]({expectation.pull.url}) |\n"
+        for name, expectation in expectations.items()
+    )
+    with open(summary, "a") as file:
+        file.write(
+            f"### Pull requests in [{repo}](https://github.com/{repo})\n\n"
+            f"| Scenario | Pull request |\n| --- | --- |\n{rows}"
+        )
+
+
 @pytest.fixture(scope="session")
 def delivered_notifications(
     request: pytest.FixtureRequest,
@@ -313,5 +328,6 @@ def delivered_notifications(
                 expectations, sink.collect_cards("/me"), notifier.log
             )
         finally:
+            write_step_summary(run.me.repo, expectations)
             for expectation in expectations.values():
                 run.me.close_pull_request(expectation.pull)
