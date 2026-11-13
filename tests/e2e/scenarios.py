@@ -78,6 +78,14 @@ def changes_requested_on_my_pr(run: RunParticipants) -> Expectation:
     return Expectation(pull, [review])
 
 
+def bodiless_review_wrapping_inline_comments(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.me, "bodiless_review_wrapping_inline_comments")
+    comment = run.alice.submit_bodiless_review_with_inline_comment(
+        pull, "An inline comment inside a bodiless review"
+    )
+    return Expectation(pull, [comment])
+
+
 @known_gap(
     "GitHub search does not count a new comment towards involves: until the pull request itself is "
     "updated, so pr-notify never fetches the conversation I joined (#4)"
