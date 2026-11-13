@@ -3,7 +3,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+  "pyjwt[crypto]>=2.15.1",
+  "pytest",
+  "requests>=2.34.2"
+]
 
 [project]
 name = "denoised-pr-notifications"
@@ -15,6 +19,10 @@ pr-notify = "denoised_pr_notifications.pr_notify:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/denoised_pr_notifications"]
+
+[tool.pytest.ini_options]
+addopts = "-m 'not e2e'"
+markers = ["e2e: runs run.sh against github.com and a local webhook sink (pytest -m e2e)"]
 
 [tool.rumdl.MD013]
 require-sentence-per-line = true

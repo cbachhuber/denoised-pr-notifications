@@ -8,7 +8,7 @@ export PATH
 BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ENV_FILE="${ENV_FILE:-$HOME/.config/pr-notify/env}"
 STATE_DIR="${STATE_DIR:-$HOME/.local/state/pr-notify}"
-RECIPIENTS_FILE="$HOME/.config/pr-notify/recipients.toml"
+RECIPIENTS_FILE="${RECIPIENTS_FILE:-$HOME/.config/pr-notify/recipients.toml}"
 LOG="$STATE_DIR/log"
 ALERT_STAMP="$STATE_DIR/last-wrapper-alert"
 
