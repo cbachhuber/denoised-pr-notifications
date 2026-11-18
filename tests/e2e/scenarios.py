@@ -129,6 +129,10 @@ def mention_on_pr_i_am_not_part_of(run: RunParticipants) -> Expectation:
     return Expectation(pull, [mention])
 
 
+@known_gap(
+    "GitHub search does not index @-mentions in inline review comments, so pr-notify never fetches the "
+    "pull request (#34)"
+)
 def mention_in_inline_comment_on_pr_i_am_not_part_of(
     run: RunParticipants,
 ) -> Expectation:
