@@ -129,6 +129,16 @@ def mention_on_pr_i_am_not_part_of(run: RunParticipants) -> Expectation:
     return Expectation(pull, [mention])
 
 
+def mention_in_inline_comment_on_pr_i_am_not_part_of(
+    run: RunParticipants,
+) -> Expectation:
+    pull = run.open_pull_request(
+        run.alice, "mention_in_inline_comment_on_pr_i_am_not_part_of"
+    )
+    mention = run.bob.post_inline_comment(pull, f"@{run.me.name} what do you think?")
+    return Expectation(pull, [mention])
+
+
 @known_gap(
     "is_addressed_to_me matches @<me> as a substring, so a mention of @<me>x is reported (#33)"
 )
