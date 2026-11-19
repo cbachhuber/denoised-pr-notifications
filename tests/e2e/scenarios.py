@@ -130,6 +130,38 @@ def mention_on_pr_i_am_not_part_of(run: RunParticipants) -> Expectation:
 
 
 @known_gap(
+    "is_addressed_to_me compares @<me> case-sensitively, so a mention as @<ME> is dropped (#37)"
+)
+def mention_with_different_capitalisation(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.alice, "mention_with_different_capitalisation")
+    mention = run.bob.post_comment(pull, f"@{run.me.name.upper()} what do you think?")
+    return Expectation(pull, [mention])
+
+
+@known_gap(
+    "pr-notify never reads the pull request description, so a mention there is not reported (#38)"
+)
+def mention_in_pr_description(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(
+        run.alice,
+        "mention_in_pr_description",
+        description=f"@{run.me.name} what do you think?",
+    )
+    return Expectation(pull, [run.alice.fetch_activity_seen_by_notifier(pull.node_id)])
+
+
+@known_gap(
+    "GitHub search does not index @-mentions in review bodies, so pr-notify never fetches the pull request (#36)"
+)
+def mention_in_review_body(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.alice, "mention_in_review_body")
+    review = run.bob.submit_review(
+        pull, "COMMENT", f"@{run.me.name} what do you think?"
+    )
+    return Expectation(pull, [review])
+
+
+@known_gap(
     "GitHub search does not index @-mentions in inline review comments, so pr-notify never fetches the "
     "pull request (#34)"
 )

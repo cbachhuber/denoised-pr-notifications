@@ -42,6 +42,7 @@ class PullRequest:
     number: int
     url: str
     branch: str
+    node_id: str
 
 
 @dataclass(frozen=True)
@@ -105,7 +106,8 @@ class Actor:
             {
                 "query": "query($id: ID!) { node(id: $id) { ... on IssueComment { url author { login } }"
                 " ... on PullRequestReviewComment { url author { login } }"
-                " ... on PullRequestReview { url author { login } } } }",
+                " ... on PullRequestReview { url author { login } }"
+                " ... on PullRequest { url author { login } } } }",
                 "variables": {"id": node_id},
             },
         )["data"]["node"]
@@ -136,7 +138,12 @@ class Actor:
             f"/repos/{self.repo}/pulls",
             {"title": title, "head": branch, "base": base, "body": body},
         )
-        return PullRequest(number=pull["number"], url=pull["html_url"], branch=branch)
+        return PullRequest(
+            number=pull["number"],
+            url=pull["html_url"],
+            branch=branch,
+            node_id=pull["node_id"],
+        )
 
     def post_comment(self, pull: PullRequest, body: str) -> ActivitySeenByNotifier:
         comment = self.call_api(
@@ -385,11 +392,15 @@ class RunParticipants:
         )
 
     def open_pull_request(
-        self, author: Actor, scenario: str, base: str = BRANCH_WITHOUT_MERGE_QUEUE
+        self,
+        author: Actor,
+        scenario: str,
+        base: str = BRANCH_WITHOUT_MERGE_QUEUE,
+        description: str = "",
     ) -> PullRequest:
         return author.open_pull_request(
             branch=f"{self.run_id}/{scenario}",
             base=base,
             title=f"[{self.run_id}] {scenario}",
-            body=f"Opened by {self.run_link}",
+            body=f"Opened by {self.run_link}\n\n{description}".strip(),
         )
