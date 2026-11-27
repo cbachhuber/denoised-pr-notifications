@@ -223,6 +223,10 @@ def conversation_i_joined_late(run: RunParticipants) -> Expectation:
     return Expectation(pull, [run.bob.post_comment(pull, "After you joined")])
 
 
+@known_gap(
+    "GitHub search does not list pull requests that mention my team, and is_addressed_to_me only "
+    "matches @<login> (#40)"
+)
 def mention_of_team_i_am_in(run: RunParticipants) -> Expectation:
     pull = run.open_pull_request(run.alice, "mention_of_team_i_am_in")
     mention = run.bob.post_comment(pull, f"@{run.team_handle} what do you think?")
