@@ -10,16 +10,23 @@ import sys
 import time
 import typing
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import FunctionType
 
-from actors import ActivitySeenByNotifier, PullRequest, RunParticipants
+from actors import (
+    BRANCH_WITHOUT_MERGE_QUEUE,
+    ActivitySeenByNotifier,
+    PullRequest,
+    RunParticipants,
+)
 
 
 @dataclass(frozen=True)
 class Expectation:
     pull: PullRequest
     reported: list[ActivitySeenByNotifier]
+    # Activity of earlier runs that a run starting within the search lookback may still report.
+    leftovers: list[ActivitySeenByNotifier] = field(default_factory=list)
 
 
 Scenario = Callable[[RunParticipants], Expectation]
@@ -197,6 +204,23 @@ def conversation_i_joined_late(run: RunParticipants) -> Expectation:
     run.me.post_comment(pull, "Joining in")
     wait_for_next_second()
     return Expectation(pull, [run.bob.post_comment(pull, "After you joined")])
+
+
+@known_gap(
+    "GitHub search does not list pull requests that mention my team, and is_addressed_to_me only "
+    "matches @<login> (#40)"
+)
+def mention_of_team_i_am_in(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.alice, "mention_of_team_i_am_in")
+    mention = run.bob.post_comment(pull, f"@{run.team_handle} what do you think?")
+    return Expectation(pull, [mention])
+
+
+def new_comment_on_an_older_pr_of_mine(run: RunParticipants) -> Expectation:
+    pull = run.me.find_or_open_long_lived_pull_request(BRANCH_WITHOUT_MERGE_QUEUE)
+    earlier = run.alice.list_recent_comments(pull)
+    comment = run.alice.post_comment(pull, "A comment on your older PR")
+    return Expectation(pull, [comment], leftovers=earlier)
 
 
 def find_scenarios() -> dict[str, Scenario]:

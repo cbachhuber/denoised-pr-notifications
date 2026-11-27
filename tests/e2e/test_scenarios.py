@@ -29,10 +29,12 @@ def test_scenario(
 ) -> None:
     expectation = delivered_notifications.expectations[scenario]
     pull_url = expectation.pull.url
+    tolerated = {(activity.url, activity.actor) for activity in expectation.leftovers}
     received = sorted(
         (card.link, card.actor)
         for card in delivered_notifications.cards
-        if card.link == pull_url or card.link.startswith(f"{pull_url}#")
+        if (card.link == pull_url or card.link.startswith(f"{pull_url}#"))
+        and (card.link, card.actor) not in tolerated
     )
     expected = sorted(
         (activity.url, activity.actor) for activity in expectation.reported

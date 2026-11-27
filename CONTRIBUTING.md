@@ -116,6 +116,8 @@ gh secret set E2E_BOB_PRIVATE_KEY < ~/.config/pr-notify/e2e-bob.pem
 
 Pull requests from forks and Dependabot receive no secrets, so the end-to-end job skips itself there.
 
+The scenario for a comment on an older pull request keeps one pull request, from the branch `long-lived`, open across runs; the first run creates it, so it only exercises an old pull request from the second run on.
+
 ### Running locally
 
 ```bash

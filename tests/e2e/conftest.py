@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from actors import Actor, RunParticipants
+from actors import LONG_LIVED_BRANCH, Actor, RunParticipants
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -255,6 +255,8 @@ def close_stale_pull_requests(me: Actor) -> None:
     """Leftovers from crashed runs would crowd the 50 pull requests pr-notify looks at."""
     cutoff = datetime.now(UTC) - STALE_AFTER
     for pull in me.call_api("GET", f"/repos/{me.repo}/pulls?state=open&per_page=100"):
+        if pull["head"]["ref"] == LONG_LIVED_BRANCH:
+            continue
         if datetime.fromisoformat(pull["created_at"]) < cutoff:
             me.call_api(
                 "PATCH",
@@ -330,4 +332,5 @@ def delivered_notifications(
         finally:
             write_step_summary(run.me.repo, expectations)
             for expectation in expectations.values():
-                run.me.close_pull_request(expectation.pull)
+                if expectation.pull.branch != LONG_LIVED_BRANCH:
+                    run.me.close_pull_request(expectation.pull)
