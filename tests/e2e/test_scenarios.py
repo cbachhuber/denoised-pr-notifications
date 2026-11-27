@@ -5,25 +5,24 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from scenarios import KNOWN_GAPS, OPT_IN, SCENARIOS, is_enabled
+from scenarios import KNOWN_GAPS, SCENARIOS
 
 if TYPE_CHECKING:
     from conftest import DeliveredNotifications
 
 
-def mark_scenario(name: str) -> list[pytest.MarkDecorator]:
-    marks = []
-    if name in KNOWN_GAPS:
-        # Not strict: whether the search index has caught up yet is a matter of timing.
-        marks.append(pytest.mark.xfail(reason=KNOWN_GAPS[name], strict=False))
-    if not is_enabled(name):
-        marks.append(pytest.mark.skip(reason=f"{OPT_IN[name]} is unset"))
-    return marks
-
-
 @pytest.mark.parametrize(
     "scenario",
-    [pytest.param(name, marks=mark_scenario(name)) for name in SCENARIOS],
+    [
+        pytest.param(
+            name,
+            # Not strict: whether the search index has caught up yet is a matter of timing.
+            marks=pytest.mark.xfail(reason=KNOWN_GAPS[name], strict=False)
+            if name in KNOWN_GAPS
+            else (),
+        )
+        for name in SCENARIOS
+    ],
 )
 def test_scenario(
     delivered_notifications: DeliveredNotifications, scenario: str

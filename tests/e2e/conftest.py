@@ -24,7 +24,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
-from scenarios import KNOWN_GAPS, SCENARIOS, Expectation, is_enabled
+from scenarios import KNOWN_GAPS, SCENARIOS, Expectation
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTROL_DEADLINE = timedelta(minutes=3)
@@ -293,7 +293,6 @@ def delivered_notifications(
         for item in request.session.items
         if (callspec := getattr(item, "callspec", None))
         and "scenario" in callspec.params
-        and is_enabled(callspec.params["scenario"])
     ]
     run = RunParticipants.from_environment()
     close_stale_pull_requests(run.me)

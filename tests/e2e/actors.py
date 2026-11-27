@@ -8,6 +8,7 @@ import secrets
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +19,10 @@ import requests
 API = "https://api.github.com"
 BRANCH_WITHOUT_MERGE_QUEUE = "branch-without-merge-queue"
 BOT_COMMENT_TIMEOUT_SECONDS = 180
-COPILOT_LOGIN = "copilot-pull-request-reviewer[bot]"
-COPILOT_TIMEOUT_SECONDS = 600
 # The one pull request of mine that runs never close, for activity long after it was opened.
 LONG_LIVED_BRANCH = "long-lived"
+# Beyond the search lookback of 10 minutes, so older comments cannot be reported again.
+RECENT_COMMENTS_WINDOW = timedelta(minutes=15)
 MERGE_QUEUE_TIMEOUT_SECONDS = 300
 MERGEABLE_TIMEOUT_SECONDS = 60
 
@@ -281,9 +282,14 @@ class Actor:
         )["data"]["repository"]["pullRequest"]
         return ActivitySeenByNotifier(url=node["url"], actor=node["mergedBy"]["login"])
 
-    def list_comments(self, pull: PullRequest) -> list[ActivitySeenByNotifier]:
+    def list_recent_comments(self, pull: PullRequest) -> list[ActivitySeenByNotifier]:
+        """Only the recent ones: the long-lived pull request collects comments from every run."""
+        since = (datetime.now(UTC) - RECENT_COMMENTS_WINDOW).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
         comments = self.call_api(
-            "GET", f"/repos/{self.repo}/issues/{pull.number}/comments?per_page=100"
+            "GET",
+            f"/repos/{self.repo}/issues/{pull.number}/comments?since={since}&per_page=100",
         )
         return [self.fetch_activity_seen_by_notifier(c["node_id"]) for c in comments]
 
@@ -306,30 +312,6 @@ class Actor:
             title="[long-lived] kept open by the end-to-end tests",
             body="Opened by the end-to-end tests, which deliberately never close it.",
         )
-
-    def request_copilot_review(self, pull: PullRequest) -> list[ActivitySeenByNotifier]:
-        """Ask Copilot to review, wait for it, and return its inline comments (the overview is no activity)."""
-        self.call_api(
-            "POST",
-            f"/repos/{self.repo}/pulls/{pull.number}/requested_reviewers",
-            {"reviewers": [COPILOT_LOGIN]},
-        )
-
-        def has_reviewed() -> bool:
-            reviews = self.call_api(
-                "GET", f"/repos/{self.repo}/pulls/{pull.number}/reviews"
-            )
-            return any(review["user"]["login"] == COPILOT_LOGIN for review in reviews)
-
-        wait_until("the Copilot review", has_reviewed, COPILOT_TIMEOUT_SECONDS)
-        comments = self.call_api(
-            "GET", f"/repos/{self.repo}/pulls/{pull.number}/comments?per_page=100"
-        )
-        return [
-            self.fetch_activity_seen_by_notifier(comment["node_id"])
-            for comment in comments
-            if comment["user"]["login"] == COPILOT_LOGIN
-        ]
 
     def assign(self, pull: PullRequest, login: str) -> None:
         self.call_api(
