@@ -116,6 +116,9 @@ gh secret set E2E_BOB_PRIVATE_KEY < ~/.config/pr-notify/e2e-bob.pem
 
 Pull requests from forks and Dependabot receive no secrets, so the end-to-end job skips itself there.
 
+The Copilot review scenario needs a Copilot seat for the machine account and runs only with `E2E_COPILOT=1` (locally in `e2e.env`, in CI as the repository variable `gh variable set E2E_COPILOT --body 1`).
+The scenario for a comment on an older pull request keeps one pull request, from the branch `long-lived`, open across runs; the first run creates it, so it only exercises an old pull request from the second run on.
+
 ### Running locally
 
 ```bash

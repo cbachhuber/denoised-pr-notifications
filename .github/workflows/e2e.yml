@@ -25,6 +25,7 @@ jobs:
           E2E_ORG: ${{ vars.E2E_ORG }}
           E2E_REPO: ${{ vars.E2E_REPO }}
           E2E_TEAM: ${{ vars.E2E_TEAM }}
+          E2E_COPILOT: ${{ vars.E2E_COPILOT }}
           E2E_ME_LOGIN: ${{ vars.E2E_ME_LOGIN }}
           E2E_ALICE_APP_ID: ${{ vars.E2E_ALICE_APP_ID }}
           E2E_BOB_APP_ID: ${{ vars.E2E_BOB_APP_ID }}

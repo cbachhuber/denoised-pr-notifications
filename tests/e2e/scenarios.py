@@ -6,26 +6,50 @@ Every function here that takes the run's participants is a scenario; nothing nee
 from __future__ import annotations
 
 import inspect
+import os
 import sys
 import time
 import typing
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import FunctionType
 
-from actors import ActivitySeenByNotifier, PullRequest, RunParticipants
+from actors import (
+    BRANCH_WITHOUT_MERGE_QUEUE,
+    ActivitySeenByNotifier,
+    PullRequest,
+    RunParticipants,
+)
 
 
 @dataclass(frozen=True)
 class Expectation:
     pull: PullRequest
     reported: list[ActivitySeenByNotifier]
+    # Activity of earlier runs that a run starting within the search lookback may still report.
+    leftovers: list[ActivitySeenByNotifier] = field(default_factory=list)
 
 
 Scenario = Callable[[RunParticipants], Expectation]
 ScenarioFunction = typing.TypeVar("ScenarioFunction", bound=FunctionType)
 # Filled by @known_gap, by scenario name.
 KNOWN_GAPS: dict[str, str] = {}
+# Filled by @opt_in: scenario name -> the environment variable that enables it.
+OPT_IN: dict[str, str] = {}
+
+
+def opt_in(variable: str) -> Callable[[ScenarioFunction], ScenarioFunction]:
+    """Run the scenario only when the environment variable is set, e.g. for a paid feature."""
+
+    def mark(scenario: ScenarioFunction) -> ScenarioFunction:
+        OPT_IN[scenario.__name__] = variable
+        return scenario
+
+    return mark
+
+
+def is_enabled(scenario: str) -> bool:
+    return scenario not in OPT_IN or bool(os.environ.get(OPT_IN[scenario]))
 
 
 def known_gap(reason: str) -> Callable[[ScenarioFunction], ScenarioFunction]:
@@ -197,6 +221,25 @@ def conversation_i_joined_late(run: RunParticipants) -> Expectation:
     run.me.post_comment(pull, "Joining in")
     wait_for_next_second()
     return Expectation(pull, [run.bob.post_comment(pull, "After you joined")])
+
+
+def mention_of_team_i_am_in(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.alice, "mention_of_team_i_am_in")
+    mention = run.bob.post_comment(pull, f"@{run.team_handle} what do you think?")
+    return Expectation(pull, [mention])
+
+
+@opt_in("E2E_COPILOT")
+def copilot_review_on_my_pr(run: RunParticipants) -> Expectation:
+    pull = run.open_pull_request(run.me, "copilot_review_on_my_pr")
+    return Expectation(pull, run.me.request_copilot_review(pull))
+
+
+def new_comment_on_an_older_pr_of_mine(run: RunParticipants) -> Expectation:
+    pull = run.me.find_or_open_long_lived_pull_request(BRANCH_WITHOUT_MERGE_QUEUE)
+    earlier = run.alice.list_comments(pull)
+    comment = run.alice.post_comment(pull, "A comment on your older PR")
+    return Expectation(pull, [comment], leftovers=earlier)
 
 
 def find_scenarios() -> dict[str, Scenario]:

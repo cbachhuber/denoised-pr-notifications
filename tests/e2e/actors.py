@@ -18,6 +18,10 @@ import requests
 API = "https://api.github.com"
 BRANCH_WITHOUT_MERGE_QUEUE = "branch-without-merge-queue"
 BOT_COMMENT_TIMEOUT_SECONDS = 180
+COPILOT_LOGIN = "copilot-pull-request-reviewer[bot]"
+COPILOT_TIMEOUT_SECONDS = 600
+# The one pull request of mine that runs never close, for activity long after it was opened.
+LONG_LIVED_BRANCH = "long-lived"
 MERGE_QUEUE_TIMEOUT_SECONDS = 300
 MERGEABLE_TIMEOUT_SECONDS = 60
 
@@ -277,6 +281,56 @@ class Actor:
         )["data"]["repository"]["pullRequest"]
         return ActivitySeenByNotifier(url=node["url"], actor=node["mergedBy"]["login"])
 
+    def list_comments(self, pull: PullRequest) -> list[ActivitySeenByNotifier]:
+        comments = self.call_api(
+            "GET", f"/repos/{self.repo}/issues/{pull.number}/comments?per_page=100"
+        )
+        return [self.fetch_activity_seen_by_notifier(c["node_id"]) for c in comments]
+
+    def find_or_open_long_lived_pull_request(self, base: str) -> PullRequest:
+        owner = self.repo.split("/")[0]
+        found = self.call_api(
+            "GET",
+            f"/repos/{self.repo}/pulls?state=open&head={owner}:{LONG_LIVED_BRANCH}",
+        )
+        if found:
+            return PullRequest(
+                number=found[0]["number"],
+                url=found[0]["html_url"],
+                branch=LONG_LIVED_BRANCH,
+                node_id=found[0]["node_id"],
+            )
+        return self.open_pull_request(
+            branch=LONG_LIVED_BRANCH,
+            base=base,
+            title="[long-lived] kept open by the end-to-end tests",
+            body="Opened by the end-to-end tests, which deliberately never close it.",
+        )
+
+    def request_copilot_review(self, pull: PullRequest) -> list[ActivitySeenByNotifier]:
+        """Ask Copilot to review, wait for it, and return its inline comments (the overview is no activity)."""
+        self.call_api(
+            "POST",
+            f"/repos/{self.repo}/pulls/{pull.number}/requested_reviewers",
+            {"reviewers": [COPILOT_LOGIN]},
+        )
+
+        def has_reviewed() -> bool:
+            reviews = self.call_api(
+                "GET", f"/repos/{self.repo}/pulls/{pull.number}/reviews"
+            )
+            return any(review["user"]["login"] == COPILOT_LOGIN for review in reviews)
+
+        wait_until("the Copilot review", has_reviewed, COPILOT_TIMEOUT_SECONDS)
+        comments = self.call_api(
+            "GET", f"/repos/{self.repo}/pulls/{pull.number}/comments?per_page=100"
+        )
+        return [
+            self.fetch_activity_seen_by_notifier(comment["node_id"])
+            for comment in comments
+            if comment["user"]["login"] == COPILOT_LOGIN
+        ]
+
     def assign(self, pull: PullRequest, login: str) -> None:
         self.call_api(
             "POST",
@@ -357,6 +411,7 @@ class RunParticipants:
     bob: Actor
     run_id: str
     run_link: str
+    team_handle: str
 
     @classmethod
     def from_environment(cls) -> RunParticipants:
@@ -389,6 +444,7 @@ class RunParticipants:
             bob=create_app_actor("BOB"),
             run_id=run_id,
             run_link=run_link,
+            team_handle=f"{require_env('E2E_ORG')}/{require_env('E2E_TEAM')}",
         )
 
     def open_pull_request(
